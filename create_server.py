@@ -1,27 +1,30 @@
 import zerorpc
 import zchunkserver
+import sys
 
-__author__ = 'Shane'
+MASTER_IP = 'localhost'
 
 
-def main():
+def main(argv):
 
-    c = zerorpc.Client()
-    # connect to master
-    c.connect('tcp://localhost:1400')
-    reg_num = c.register_chunk()
+    if argv:
+        master_ip = str(argv[0])
+    else:
+        master_ip = MASTER_IP
 
-    s = zerorpc.Server(zchunkserver.ZChunkserver(reg_num))
+    chunkserver = zchunkserver.ZChunkserver(master_ip=master_ip)
+    reg_num = chunkserver.chunkloc
+    s = zerorpc.Server(chunkserver)
     port = 4400 + reg_num
-    addr = 'tcp://*:%d' % port
-    print 'Registering chunkserver %d on port %s' % (reg_num, addr)
-    s.bind(addr)
+    address = 'tcp://*:%d' % port
+    print 'Registering chunkserver %d on port %s' % (reg_num, address)
+    s.bind(address)
     try:
         s.run()
     except:
-        print 'Closing server on port %s' %addr
+        print 'Closing server on port %s' % address
         s.close()
         
 if __name__ == '__main__':
-    main()
+    main(sys.argv[1:])
 

@@ -1,7 +1,7 @@
 import uuid
 import time
 import zerorpc
-
+import operator
 
 class ZMaster:
 
@@ -29,7 +29,7 @@ class ZMaster:
             print 'Key error'
             raise
 
-    def register_chunk(self, base_port=4400):
+    def register_chunk(self, base_port=4400, ip='localhost'):
         """
         :param base_port: Beginning tcp port for chunkserver reg.
          default port is base_port + chunkserver_number (4403 for chunkserver #3)
@@ -37,14 +37,14 @@ class ZMaster:
         """
         chunkserver_number = self.num_chunkservers
         self.num_chunkservers += 1
-        access_port = 'tcp://localhost:' + str(base_port + chunkserver_number)
-        self.chunkservers[chunkserver_number] = access_port
+        port_num = base_port + chunkserver_number
+        address = 'tcp://%s:%d' % (ip, port_num)
+        self.chunkservers[chunkserver_number] = address
 
         c = zerorpc.Client()
-        c.connect(access_port)
+        c.connect(address)
         self.chunkclients[chunkserver_number] = c
-        print 'Chunksrv #%d registered on port %s' % (
-            chunkserver_number, access_port)
+        print 'Chunksrv #%d registered at %s' % (chunkserver_number, address)
         return chunkserver_number
 
     # temporary functions
@@ -82,7 +82,31 @@ class ZMaster:
             self.chunkrobin = (self.chunkrobin + 1) % self.num_chunkservers
         return chunkuuids
 
+    def alloc_append(self, filename, num_append_chunks):  # append chunks
+        chunkuuids = self.filetable[filename]
+        append_chunkuuids = self.alloc_chunks(num_append_chunks)
+        chunkuuids.extend(append_chunkuuids)
+        return append_chunkuuids
 
+    def dump_metadata(self):
+        print "Filetable:",
+        for filename, chunkuuids in self.filetable.items():
+            print filename, "with", len(chunkuuids), "chunks"
+        print "Chunkservers: ", len(self.chunkservers)
+        print "Chunkserver Data:"
+        for chunkuuid, chunkloc in sorted(self.chunktable.iteritems(),
+                                          key=operator.itemgetter(1)):
+            chunk = self.chunkclients[chunkloc].read(chunkuuid)
+            print chunkloc, chunkuuid, chunk
+
+    def delete(self, filename):  # rename for later garbage collection
+        chunkuuids = self.filetable[filename]
+        del self.filetable[filename]
+        timestamp = repr(time.time())
+        deleted_filename = "/hidden/deleted/" + timestamp + filename
+        self.filetable[deleted_filename] = chunkuuids
+        print "deleted file: " + filename + " renamed to " + \
+             deleted_filename + " ready for gc"
 
 
 

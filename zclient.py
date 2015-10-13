@@ -3,9 +3,11 @@ import zerorpc
 
 class ZClient:
 
-    def __init__(self):
+    def __init__(self, ip='localhost', port=1400):
         self.master = zerorpc.Client()
-        self.master.connect('tcp://localhost:1400')
+        address = 'tcp://%s:%s' % (ip, str(port))
+        print 'Connecting to master at %s' % address
+        self.master.connect(address)
 
     def write(self, filename, data):
         """
@@ -75,3 +77,16 @@ class ZClient:
             chunks.append(chunk)
         data = reduce(lambda x, y: x + y, chunks)  # reassemble in order
         return data
+
+    def dump_metadata(self):
+        self.master.dump_metadata()
+
+    def append(self, filename, data):
+        if not self._exists(filename):
+            raise Exception("append error, file does not exist: " + filename)
+        num_chunks = self._num_chunks(len(data))
+        append_chunkuuids = self.master.alloc_append(filename, num_chunks)
+        self._write_chunks(append_chunkuuids, data)
+
+    def delete(self, filename):
+        self.master.delete(filename)

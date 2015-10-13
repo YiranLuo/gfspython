@@ -1,16 +1,23 @@
 import os
 import zerorpc
+import socket
 
 
 class ZChunkserver:
 
-    def __init__(self, chunkloc):
-        self.chunkloc = chunkloc
+    def __init__(self, master_ip='localhost', port=1400):
         self.chunktable = {}
-        self.local_filesystem_root = "/tmp/gfs/chunks/" + repr(chunkloc)
+
         self.master = zerorpc.Client()
-        self.masterloc = 'tcp://localhost:1400'
-        self.master.connect(self.masterloc)
+        self.master_address = 'tcp://%s:%d' % (master_ip, port)
+        print 'Connecting to master at %s' % self.master_address
+        self.master.connect(self.master_address)
+
+        # get chunkserver number, send ip to master to register
+        self.chunkloc = self.master.register_chunk(ip=self.get_myip())
+
+        # local directory where chunks are stored
+        self.local_filesystem_root = "/tmp/gfs/chunks/" + repr(self.chunkloc)
         if not os.access(self.local_filesystem_root, os.W_OK):
             os.makedirs(self.local_filesystem_root)
 
@@ -18,7 +25,7 @@ class ZChunkserver:
         """
         Prints name to test connectivity
         """
-        print 'I am chunkserver' + str(self.chunkloc)
+        print 'I am chunkserver #' + str(self.chunkloc)
         self.master.answer_server(self.chunkloc)
 
     def write(self, chunkuuid, chunk):
@@ -38,3 +45,8 @@ class ZChunkserver:
         local_filename = self.local_filesystem_root + "/" \
             + str(chunkuuid) + '.gfs'
         return local_filename
+
+    # temporary solution taken from stackoverflow to get ip
+    def get_myip(self):
+        return([l for l in ([ip for ip in socket.gethostbyname_ex(socket.gethostname())[2] if not ip.startswith("127.")][:1], [[(s.connect(('8.8.8.8', 80)), s.getsockname()[0], s.close()) for s in [socket.socket(socket.AF_INET, socket.SOCK_DGRAM)]][0][1]]) if l][0][0])
+
