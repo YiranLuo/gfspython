@@ -29,6 +29,12 @@ class ZMaster:
             print 'Key error'
             raise
 
+    def list(self):
+        """ Returns a list of files that do not start with /hidden/deleted (marked
+        for deletion """
+        return [key for key in self.filetable.keys()
+                if not key.startswith('/hidden/')]
+
     def register_chunk(self, ip, base_port=4400):
         """
         :param base_port: Beginning tcp port for chunkserver reg.
@@ -36,12 +42,10 @@ class ZMaster:
         :param ip:  The ip of the chunkserver registering
         :return: chunkserver number
         """
-        print 'Registering chunk with port %d and ip %s' % (base_port, ip)
         chunkserver_number = self.num_chunkservers
         self.num_chunkservers += 1
         port_num = base_port + chunkserver_number
         address = 'tcp://%s:%d' % (ip, port_num)
-        print 'address now', address, ip, port_num
         self.chunkservers[chunkserver_number] = address
 
         c = zerorpc.Client()

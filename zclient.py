@@ -9,6 +9,10 @@ class ZClient:
         print 'Connecting to master at %s' % address
         self.master.connect(address)
 
+    def close(self):
+        """Closes connection with master"""
+        self.master.close()
+
     def write(self, filename, data):
         """
         Creates a new file, writes the data
@@ -58,6 +62,14 @@ class ZClient:
             chunkserver_client[idx] = zclient
 
         return chunkserver_client
+
+    def list(self):
+        filelist = self.master.list()
+        if filelist:
+            for file in filelist:
+                print file
+        else:
+            print 'No files in the system.'
 
     def read(self, filename):  # get metadata, then read chunks direct
         """
