@@ -14,7 +14,9 @@ class ZChunkserver:
         self.master.connect(self.master_address)
 
         # get chunkserver number, send ip to master to register
-        self.chunkloc = self.master.register_chunk(ip=self.get_myip())
+        myip = self.get_myip()
+        print 'Registering with ip %s' % myip
+        self.chunkloc = self.master.register_chunk(myip)
 
         # local directory where chunks are stored
         self.local_filesystem_root = "/tmp/gfs/chunks/" + repr(self.chunkloc)

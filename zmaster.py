@@ -29,16 +29,19 @@ class ZMaster:
             print 'Key error'
             raise
 
-    def register_chunk(self, base_port=4400, ip='localhost'):
+    def register_chunk(self, ip, base_port=4400):
         """
         :param base_port: Beginning tcp port for chunkserver reg.
          default port is base_port + chunkserver_number (4403 for chunkserver #3)
+        :param ip:  The ip of the chunkserver registering
         :return: chunkserver number
         """
+        print 'Registering chunk with port %d and ip %s' % (base_port, ip)
         chunkserver_number = self.num_chunkservers
         self.num_chunkservers += 1
         port_num = base_port + chunkserver_number
         address = 'tcp://%s:%d' % (ip, port_num)
+        print 'address now', address, ip, port_num
         self.chunkservers[chunkserver_number] = address
 
         c = zerorpc.Client()
