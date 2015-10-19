@@ -1,6 +1,9 @@
 Basic replication of gfs.py - read/write functionality with separation.  
 
 
+create_master.py [optional port] to create master on port 1400 or specified port number
+create_server.py [optional ip] to connect to a master on localhost by default or to specified ip address
+
 Basic TODO:
 Extend servers to multiple machines (zookeeper with registration)
 add appending?
