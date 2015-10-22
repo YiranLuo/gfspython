@@ -1,6 +1,7 @@
 Getting ZooKeeper working 
 
 1) Download stable release http://zookeeper.apache.org/releases.html#download 
+1.b) pip install kazoo for the python kazoo client package 
 2) Extract archive
 3) rename conf/zoo_sample.cfg to zoo.cfg 
 	- config has default heartbeat time of 2000 miliseconds (min session timeout is 2x heartbeat)
