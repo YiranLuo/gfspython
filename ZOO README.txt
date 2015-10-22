@@ -12,5 +12,21 @@ Getting ZooKeeper working
 	- from kazoo.client import KazooClient
 	  zk = KazooClient() # defaults to localhost:2181
 	  
-Can create nodes, set data, get children, watch for data/children changes.  Supports transactions with ZooKeeper 3.4 and above.  
-
+	  some possible examples
+	  zk.create("/chunkservers/0/ip", "optional data value(ip address)") 
+	  zk.create("/master/ip", "ip address") 
+	  data, stats = zk.get("/master/ip") # data contains ip address, or whatever data is stored at that node
+	  
+	  zk.create("/files/filename/read") # create a read lease?
+	  zk.create("/files/filename/write") # create a write lease?
+	  
+	  To check leases, zk.get_children("/files/filename") to see if any read/write lease exists
+	  
+	  You can lock a node, not sure how useful that will be, because it doesn't seem to stop
+	  another client from changing the locked node's data, or creating children from that node. 
+	  
+Supports transactions with ZooKeeper 3.4 and above.  
+	transaction = zk.transaction()
+	transaction.check('/node/a', version=3)
+	transaction.create('/node/b', b"a value")
+	results = transaction.commit()
