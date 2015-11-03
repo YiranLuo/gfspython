@@ -1,4 +1,4 @@
-Getting ZooKeeper working 
+Getting ZooKeeper work
 
 1) Download stable release http://zookeeper.apache.org/releases.html#download 
 1.b) pip install kazoo for the python kazoo client package 
