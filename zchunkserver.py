@@ -34,6 +34,19 @@ class ZChunkserver:
             data = f.read()
         return data
 
+    def delete(self, chunkuuids):
+        for chunkid in chunkuuids:
+            filename = self.chunk_filename(chunkid)
+            try:
+              if os.path.exists(filename):
+		 print "Removing "+filename
+                 os.remove(filename)
+		 return True
+            except:
+              None
+    def disp(self,a):
+	print str(a)+ str(self.chunkloc)
+
     def chunk_filename(self, chunkuuid):
         local_filename = self.local_filesystem_root + "/" \
             + str(chunkuuid) + '.gfs'
