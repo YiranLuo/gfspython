@@ -51,23 +51,23 @@ class ZClient:
         Creates zerorpc client for each chunkserver
         :return:  Dictionary of zerorpc clients bound to chunkservers
         """
-        chunkserver_client = {}
+        chunkserver_clients = {}
         chunkservers = self.master.get('chunkservers')
 
-        for idx in range(len(chunkservers)):
+        for chunkserver_num, chunkserver_ip in chunkservers.iteritems():
             zclient = zerorpc.Client()
-            print 'Client connecting to chunkserver at %s' % chunkservers[idx]
-            zclient.connect(chunkservers[idx])
+            print 'Client connecting to chunkserver %s at %s' % (chunkserver_num, chunkserver_ip)
+            zclient.connect(chunkserver_ip)
             zclient.print_name()
-            chunkserver_client[idx] = zclient
+            chunkserver_clients[chunkserver_num] = zclient
 
-        return chunkserver_client
+        return chunkserver_clients
 
     def list(self):
         filelist = self.master.list()
         if filelist:
-            for file in filelist:
-                print file
+            for filename in filelist:
+                print filename
         else:
             print 'No files in the system.'
 

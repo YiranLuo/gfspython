@@ -1,28 +1,40 @@
-import zerorpc
-import zchunkserver
 import sys
 
-MASTER_IP = 'localhost'
+from zmq import ZMQError
+
+import zutils
+import zerorpc
+import zchunkserver
+
+
+ZOO_IP = 'localhost'
 
 
 def main(argv):
 
     if argv:
-        master_ip = str(argv[0])
+        zoo_ip = str(argv[0])
     else:
-        master_ip = MASTER_IP
+        zoo_ip = ZOO_IP
 
-    chunkserver = zchunkserver.ZChunkserver(master_ip=master_ip)
+    chunkserver = zchunkserver.ZChunkserver(zoo_ip=zoo_ip)
     reg_num = chunkserver.chunkloc
     s = zerorpc.Server(chunkserver)
     port = 4400 + reg_num
-    address = 'tcp://*:%d' % port
-    print 'Registering chunkserver %d on port %s' % (reg_num, address)
-    s.bind(address)
+    address = 'tcp://%s:%d' % (zutils.get_myip(), port)
+
     try:
+        print 'Registering chunkserver %d on at %s' % (reg_num, address)
+        s.bind(address)
         s.run()
-    except:
-        print 'Closing server on port %s' % address
+    except ZMQError as e:
+        print "Unable to start server: " + e.strerror
+        s.close()
+        sys.exit(2)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        print 'Closing server on %s' % address
         s.close()
         
 if __name__ == '__main__':

@@ -3,19 +3,91 @@ import time
 import zerorpc
 import operator
 
+from kazoo.client import KazooClient
+import zutils
+
+CHUNKSERVER_PATH = 'chunkserver/'
+
+
 class ZMaster:
 
-    def __init__(self):
+    def __init__(self, zoo_ip='localhost:2181', master_port=1400):
         self.num_chunkservers = 0
         self.max_chunkservers = 10
         self.max_chunksperfile = 100
+        self.ip = zutils.get_myip() + ':' + str(master_port)
         self.chunksize = 10
         self.chunkrobin = 0
         self.filetable = {}  # file to chunk mapping
         self.chunktable = {}  # chunkuuid to chunkloc mapping
         self.chunkservers = {}  # loc id to chunkserver mapping
         self.chunkclients = {}
-        # self.init_chunkservers()
+
+        self.zookeeper = KazooClient(hosts=zoo_ip)
+        self._register_with_zookeeper(master_port)
+
+    def _register_with_zookeeper(self, master_port):
+        try:
+            self.zookeeper.start()
+            address = "tcp://%s:%s" % (zutils.get_myip(), master_port)
+
+            # use ephemeral node for shadow master to subscribe to later
+            # self.zookeeper.create('master', ephemeral=True, value=address)
+            self.zookeeper.ensure_path('master')
+            self.zookeeper.set('master', address)
+
+            # registers chunkserver with master when ip set on zookeeper
+            def watch_ip(event):
+                path = event.path
+                chunkserver_ip = self.zookeeper.get(path)[0]
+                chunkserver_num = path[path.rfind('/')+1:]
+                print "New IP %s detected in chunknum %s" % (chunkserver_ip, chunkserver_num)
+                self._register_chunkserver(chunkserver_num, chunkserver_ip)
+
+            @self.zookeeper.ChildrenWatch(CHUNKSERVER_PATH)
+            def watch_children(children):
+                if len(children) > len(self.chunkservers):
+                    print "New chunkserver(s) detected"
+                    # This creates a watch function for each new chunk server, where the
+                    # master waits to register until the data(ip address) is updated
+                    new_chunkservers = (chunkserver_num for chunkserver_num in children
+                                        if chunkserver_num not in self.chunkservers)
+                    for chunkserver_num in new_chunkservers:
+                        chunkserver_ip = self.zookeeper.get(CHUNKSERVER_PATH + chunkserver_num)[0]
+                        # if IP is not set yet, assign watcher to wait
+                        if len(chunkserver_ip) == 0:
+                            self.zookeeper.exists(CHUNKSERVER_PATH+chunkserver_num, watch=watch_ip)
+                        else:
+                            self._register_chunkserver(chunkserver_num, chunkserver_ip)
+
+                # TODO:  Handle deletion, replication checks, metadata update
+                elif len(children) < len(self.chunkservers):
+                    # call replication checks, etc here
+                    print "Chunkserver was removed"
+        except:
+            print "Unable to connect to zookeeper"
+            raise
+
+    def _register_chunkserver(self, chunkserver_num, chunkserver_ip):
+        """
+        Adds chunkserver IP to chunkserver table and a connected zerorpc client to chunkclients
+        :param chunkserver_num:
+        :param chunkserver_ip:
+        :return:  None
+        """
+        try:
+            c = zerorpc.Client()
+            c.connect(chunkserver_ip)
+            self.chunkclients[chunkserver_num] = c
+            self.chunkservers[chunkserver_num] = chunkserver_ip
+            # c.get_metadata() and add to filetable
+        except:
+            print "Error connecting master to chunksrv %s at %s" % (chunkserver_num, chunkserver_ip)
+            raise
+
+        print 'Chunksrv #%d registered at %s' % (int(chunkserver_num), chunkserver_ip)
+        self.num_chunkservers += 1
+        print 'Number of chunkservers = %d' % self.num_chunkservers
 
     def get(self, ivar):
         """
@@ -35,25 +107,6 @@ class ZMaster:
         return [key for key in self.filetable.keys()
                 if not key.startswith('/hidden/')]
 
-    def register_chunk(self, ip, base_port=4400):
-        """
-        :param base_port: Beginning tcp port for chunkserver reg.
-         default port is base_port + chunkserver_number (4403 for chunkserver #3)
-        :param ip:  The ip of the chunkserver registering
-        :return: chunkserver number
-        """
-        chunkserver_number = self.num_chunkservers
-        self.num_chunkservers += 1
-        port_num = base_port + chunkserver_number
-        address = 'tcp://%s:%d' % (ip, port_num)
-        self.chunkservers[chunkserver_number] = address
-
-        c = zerorpc.Client()
-        c.connect(address)
-        self.chunkclients[chunkserver_number] = c
-        print 'Chunksrv #%d registered at %s' % (chunkserver_number, address)
-        return chunkserver_number
-
     # temporary functions
     def exists(self, filename):
         return True if filename in self.filetable else False
@@ -66,7 +119,7 @@ class ZMaster:
             client.print_name()
 
     def answer_server(self, chunknum):
-        print 'Master ack from %d' %chunknum
+        print 'Master ack from %d' % chunknum
 
     def get_chunkloc(self, chunkuuid):
         return self.chunktable[chunkuuid]
@@ -81,10 +134,11 @@ class ZMaster:
 
     def alloc_chunks(self, num_chunks):
         chunkuuids = []
+        keys_list = self.chunkservers.keys()
         for i in range(0, num_chunks):
             chunkuuid = str(uuid.uuid1())
             chunkloc = self.chunkrobin
-            self.chunktable[chunkuuid] = chunkloc
+            self.chunktable[chunkuuid] = keys_list[chunkloc]
             chunkuuids.append(chunkuuid)
             self.chunkrobin = (self.chunkrobin + 1) % self.num_chunkservers
         return chunkuuids
@@ -112,8 +166,7 @@ class ZMaster:
         timestamp = repr(time.time())
         deleted_filename = "/hidden/deleted/" + timestamp + filename
         self.filetable[deleted_filename] = chunkuuids
-        print "deleted file: " + filename + " renamed to " + \
-             deleted_filename + " ready for gc"
+        print "deleted file: " + filename + " renamed to " + deleted_filename + " ready for gc"
 
 
 
