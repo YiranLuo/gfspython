@@ -1,4 +1,4 @@
-Getting ZooKeeper working 
+Getting ZooKeeper work
 
 1) Download stable release http://zookeeper.apache.org/releases.html#download 
 1.b) pip install kazoo for the python kazoo client package 
@@ -6,7 +6,7 @@ Getting ZooKeeper working
 3) rename conf/zoo_sample.cfg to zoo.cfg 
 	- config has default heartbeat time of 2000 miliseconds (min session timeout is 2x heartbeat)
 	- default port 2181 
-	- data directory /var/zookeeper
+	- data directory /tmp/zookeeper
 	
 4) start server with bin/zkServer.sh start
 5) in python shell, can follow https://kazoo.readthedocs.org/en/latest/basic_usage.html for kazoo client
