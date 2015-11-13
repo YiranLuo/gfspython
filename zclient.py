@@ -1,4 +1,6 @@
 import zerorpc
+import time
+import threading
 
 
 class ZClient:
@@ -23,9 +25,14 @@ class ZClient:
         '''if self._exists(filename):
             self.delete(filename)'''
 
+        start = time.time()
+
         num_chunks = self._num_chunks(len(data))
         chunkuuids = self.master.alloc(filename, num_chunks)
         self._write_chunks(chunkuuids, data)
+
+        end = time.time()
+        print "Total time writing was %0.2f" % ((end-start)*1000)
 
     def _exists(self, filename):
         return self.master.exists(filename)
@@ -46,6 +53,7 @@ class ZClient:
             chunkloc = self.master.get_chunkloc(chunkuuid)
             chunkserver_clients[chunkloc].write(chunkuuid, chunks[idx])
 
+    # TODO add argument here so that we only establish necessary connections
     def _establish_connection(self):
         """
         Creates zerorpc client for each chunkserver
@@ -71,6 +79,7 @@ class ZClient:
         else:
             print 'No files in the system.'
 
+    # TODO Only establish connection to necessary servers
     def read(self, filename):  # get metadata, then read chunks direct
         """
         Connects to each chunkserver and reads the chunks in order, then
@@ -80,15 +89,40 @@ class ZClient:
         """
         if not self._exists(filename):
             raise Exception("read error, file does not exist: " + filename)
-        chunks = []
+        # chunks = []
+        jobs = []
         chunkuuids = self.master.get_chunkuuids(filename)
+        chunktable = self.master.get('chunktable')
+        chunks = [None] * len(chunkuuids)
         chunkserver_clients = self._establish_connection()
-        for chunkuuid in chunkuuids:
-            chunkloc = self.master.get_chunkloc(chunkuuid)
-            chunk = chunkserver_clients[chunkloc].read(chunkuuid)
-            chunks.append(chunk)
+        for i, chunkuuid in enumerate(chunkuuids):
+            chunkloc = chunktable[chunkuuid]
+            thread = threading.Thread(
+                target=self._read(chunkuuid, chunkserver_clients[chunkloc], chunks, i))
+            jobs.append(thread)
+            thread.start()
+
+        # block until all threads are done before reducing chunks
+        for j in jobs:
+            j.join()
+
         data = reduce(lambda x, y: x + y, chunks)  # reassemble in order
         return data
+
+    @staticmethod
+    def _read(self, chunkuuid, chunkserver_client, chunks, i):
+        """
+        Gets appropriate chunkserver to contact from master, and retrieves the chunk with
+        chunkuuid. This function is passed to a threading service. Thread safe since each thread
+        accesses only one index.
+        :param chunkuuid:
+        :param chunkserver_client: chunkserver to retrieve chunk from
+        :param chunks: list of chunks we will append this chunk to
+        :param i: current index we are working on
+        :return: Calling threads in this fashion cannot return values, so we pass in chunks
+        """
+        chunk = chunkserver_client.read(chunkuuid)
+        chunks[i] = chunk
 
     def dump_metadata(self):
         self.master.dump_metadata()
