@@ -34,6 +34,7 @@ class ZMaster:
             # use ephemeral node for shadow master to subscribe to later
             # self.zookeeper.create('master', ephemeral=True, value=address)
             self.zookeeper.ensure_path('master')
+            self.zookeeper.ensure_path('chunkserver')
             self.zookeeper.set('master', address)
 
             # registers chunkserver with master when ip set on zookeeper
