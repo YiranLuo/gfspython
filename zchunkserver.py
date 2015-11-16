@@ -3,7 +3,7 @@ import subprocess
 import re
 
 import zerorpc
-from kazoo.client import KazooClient
+from kazoo.client import KazooClient, KazooState
 from kazoo.exceptions import NoNodeError
 
 import zutils
@@ -21,32 +21,35 @@ class ZChunkserver:
         # TODO:  need to add handling in case master is down here
         try:
             self.master_ip = self._register_with_zookeeper()
-            print 'Chunkserver %d Connecting to master at %s' % (self.chunkloc, self.master_ip)
+            print 'Chunkserver %d Connecting to master at %s' % (int(self.chunkloc), self.master_ip)
             self.master.connect(self.master_ip)
         except NoNodeError:
             print "No master record in zookeeper"
+            raise  # TODO handle shadow master/waiting for master to reconnect later
         except:
-            print "Some other error happened"
+            print "\n\tSome other error happened:"
             raise
 
-        # get chunkserver number, send ip to master to register
-        # myip = zutils.get_myip()
-        # print 'Registering with ip %s' % myip
-        # self.chunkloc = self.master.register_chunk(myip)
-
         # local directory where chunks are stored
-        self.local_filesystem_root = "/tmp/gfs/chunks/" + repr(self.chunkloc)
+        self.local_filesystem_root = "/tmp/gfs/chunks/" + repr(int(self.chunkloc))
         if not os.access(self.local_filesystem_root, os.W_OK):
             os.makedirs(self.local_filesystem_root)
 
     def _register_with_zookeeper(self):
+
+        def my_listener(state):
+            if state == KazooState.LOST or state == KazooState.SUSPENDED:
+                print "suspended|lost state"
+                # TODO connect to zookeeper again
+
         self.zookeeper.start()
+        self.zookeeper.add_listener(my_listener)
         self.zookeeper.ensure_path('chunkserver')
         master_ip = self.zookeeper.get('master')[0]
 
         path = self.zookeeper.create('chunkserver/', ephemeral=True, sequence=True)
-        self.chunkloc = int(path.replace('/chunkserver/', ''))
-        self.zookeeper.set(path, zutils.get_tcp(4400 + self.chunkloc))
+        self.chunkloc = path.replace('/chunkserver/', '')
+        self.zookeeper.set(path, zutils.get_tcp(4400 + int(self.chunkloc)))
 
         return master_ip
 
@@ -54,8 +57,8 @@ class ZChunkserver:
         """
         Prints name to test connectivity
         """
-        print 'I am chunkserver #' + str(self.chunkloc)
-        self.master.answer_server(self.chunkloc)
+        print 'I am chunkserver #' + str(int(self.chunkloc))
+        self.master.answer_server(int(self.chunkloc))
 
     def write(self, chunkuuid, chunk):
         local_filename = self.chunk_filename(chunkuuid)
@@ -75,8 +78,11 @@ class ZChunkserver:
             + str(chunkuuid) + '.gfs'
         return local_filename
 
+    def close(self):
+        self.master.close()
+
     @staticmethod
-    def get_stats(self):
+    def get_stats():
 
         results = []
         pattern = r' \d+[\.]?\d*'
@@ -93,6 +99,6 @@ class ZChunkserver:
         # get storage info and parse results
         storage = p2.communicate()[0]
         storage = re.findall(r'\d+%', storage)  # find entry with %
-        results.append(storage[0][:-1])  # append entry without %
+        results.append(int(storage[0][:-1]))  # append entry without %
 
         return results

@@ -1,9 +1,9 @@
 import sys
 
 from zmq import ZMQError
+import zerorpc
 
 import zutils
-import zerorpc
 import zchunkserver
 
 
@@ -18,7 +18,7 @@ def main(argv):
         zoo_ip = ZOO_IP
 
     chunkserver = zchunkserver.ZChunkserver(zoo_ip=zoo_ip)
-    reg_num = chunkserver.chunkloc
+    reg_num = int(chunkserver.chunkloc)
     s = zerorpc.Server(chunkserver)
     port = 4400 + reg_num
     address = 'tcp://%s:%d' % (zutils.get_myip(), port)

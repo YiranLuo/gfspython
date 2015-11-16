@@ -1,27 +1,30 @@
 import uuid
 import time
-import zerorpc
 import operator
+import threading
 
 from kazoo.client import KazooClient
+import zerorpc
+
 import zutils
 
 CHUNKSERVER_PATH = 'chunkserver/'
-
+UPDATE_FREQUENCY = 5  # update frequency in seconds
 
 class ZMaster:
 
     def __init__(self, zoo_ip='localhost:2181', master_port=1400):
         self.num_chunkservers = 0
-        self.max_chunkservers = 10
-        self.max_chunksperfile = 100
+        self.last_updated = 0  # time since last stats poll
         self.ip = zutils.get_myip() + ':' + str(master_port)
         self.chunksize = 10
         self.chunkrobin = 0
         self.filetable = {}  # file to chunk mapping
         self.chunktable = {}  # chunkuuid to chunkloc mapping
         self.chunkservers = {}  # loc id to chunkserver mapping
-        self.chunkclients = {}
+        self.chunkclients = {}  # zerorpc clients connected to chunkservers
+
+        self.chunkstats = {}  # stats for capacity and network load
 
         self.zookeeper = KazooClient(hosts=zoo_ip)
         self._register_with_zookeeper(master_port)
@@ -81,7 +84,8 @@ class ZMaster:
             c.connect(chunkserver_ip)
             self.chunkclients[chunkserver_num] = c
             self.chunkservers[chunkserver_num] = chunkserver_ip
-            # c.get_metadata() and add to filetable
+            # self.chunkstats[chunkserver_num] = c.get_stats()
+            # TODO c.get_metadata() and add to filetable, handle errors without raising
         except:
             print "Error connecting master to chunksrv %s at %s" % (chunkserver_num, chunkserver_ip)
             raise
@@ -107,6 +111,29 @@ class ZMaster:
         for deletion """
         return [key for key in self.filetable.keys()
                 if not key.startswith('/hidden/')]
+
+    def update_stats(self):
+        """ Updates storage/network use for each chunkserver if enough time has elapsed """
+        new_time = time.time()
+        if new_time - self.last_updated > UPDATE_FREQUENCY:
+            jobs = []
+            for chunkserver_num, chunkclient in self.chunkclients.iteritems():
+                thread = threading.Thread(target=self._get_stats(chunkserver_num, chunkclient))
+                jobs.append(thread)
+                thread.start()
+
+            # block until all threads are done before returning
+            for j in jobs:
+                j.join()
+
+            self.last_updated = new_time
+
+    def _get_stats(self, chunkserver_num, chunkclient):
+        stats = chunkclient.get_stats()
+
+        # average network speed for smoother view
+        stats[0] = (stats[0] + self.chunkstats[chunkserver_num]) / 2
+        self.chunkstats[chunkserver_num] = stats
 
     # temporary functions
     def exists(self, filename):

@@ -1,6 +1,7 @@
-import zerorpc
 import time
 import threading
+
+import zerorpc
 
 
 class ZClient:
@@ -45,12 +46,14 @@ class ZClient:
         chunksize = self.master.get('chunksize')
         chunks = [data[x:x+chunksize] for x in range(0, len(data), chunksize)]
 
-        # connect with each chunkserver. Change to check/establish later
+        # connect with each chunkserver. TODO Change to check/establish later
         chunkserver_clients = self._establish_connection()
 
+        # TODO get partial table
+        chunktable = self.master.get('chunktable')
         # write to each chunkserver
         for idx, chunkuuid in enumerate(chunkuuids):
-            chunkloc = self.master.get_chunkloc(chunkuuid)
+            chunkloc = chunktable[chunkuuid]
             chunkserver_clients[chunkloc].write(chunkuuid, chunks[idx])
 
     # TODO add argument here so that we only establish necessary connections
@@ -92,6 +95,8 @@ class ZClient:
         # chunks = []
         jobs = []
         chunkuuids = self.master.get_chunkuuids(filename)
+
+        # TODO get partial table
         chunktable = self.master.get('chunktable')
         chunks = [None] * len(chunkuuids)
         chunkserver_clients = self._establish_connection()
@@ -110,7 +115,7 @@ class ZClient:
         return data
 
     @staticmethod
-    def _read(self, chunkuuid, chunkserver_client, chunks, i):
+    def _read(chunkuuid, chunkserver_client, chunks, i):
         """
         Gets appropriate chunkserver to contact from master, and retrieves the chunk with
         chunkuuid. This function is passed to a threading service. Thread safe since each thread
