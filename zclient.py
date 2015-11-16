@@ -16,12 +16,14 @@ class ZClient:
 
         if self._exists(filename):
            self.master.updatevrsn(filename,1)
+	   self.edit(filename,data)
 	else:
+	   seq=0
            self.master.updatevrsn(filename,0)
 
-        num_chunks = self._num_chunks(len(data))
-        chunkuuids = self.master.alloc(filename, num_chunks)
-        self._write_chunks(chunkuuids, data)
+           num_chunks = self._num_chunks(len(data))
+           chunkuuids = self.master.alloc(filename, num_chunks, seq)
+           self._write_chunks(chunkuuids, data)
 
     def _exists(self, filename):
         return self.master.exists(filename)
@@ -39,7 +41,7 @@ class ZClient:
 
         # write to each chunkserver
         for idx, chunkuuid in enumerate(chunkuuids):
-            chunkloc = self.master.get_chunkloc(chunkuuid)
+            chunkloc = self.master.get_chunkloc(chunkuuid)[0]
             chunkserver_clients[chunkloc].write(chunkuuid, chunks[idx])
 
     def _establish_connection(self):
@@ -74,9 +76,11 @@ class ZClient:
 	else:
          chunks = []
          chunkuuids = self.master.get_chunkuuids(filename)
+	 print chunkuuids
          chunkserver_clients = self._establish_connection()
+	 print self.master.see_chunkloc()
          for chunkuuid in chunkuuids:
-            chunkloc = self.master.get_chunkloc(chunkuuid)
+            chunkloc = self.master.get_chunkloc(chunkuuid)[0]
             chunk = chunkserver_clients[chunkloc].read(chunkuuid)
             chunks.append(chunk)
          data = reduce(lambda x, y: x + y, chunks)  # reassemble in order
@@ -107,9 +111,13 @@ class ZClient:
     def append(self, filename, data):
         if not self._exists(filename):
             raise Exception("append error, file does not exist: " + filename)
-        num_chunks = self._num_chunks(len(data))
-        append_chunkuuids = self.master.alloc_append(filename, num_chunks)
-        self._write_chunks(append_chunkuuids, data)
+	else:
+            num_chunks = self._num_chunks(len(data))
+            chunkuuids = self.master.get_chunkuuids(filename)[-1]
+	    seq = int(chunkuuids.split('$%#')[1]) + 1
+
+            append_chunkuuids = self.master.alloc_append(num_chunks, filename, seq)
+            self._write_chunks(append_chunkuuids, data)
  
     def delete(self, filename):
 	if not self._exists(filename):
@@ -135,7 +143,7 @@ class ZClient:
         for chunkuuid in chunkuuids:
 	    temp={}
 	    #maybe use subprocess to execute the download process in parallel
-            chunkloc = self.master.get_chunkloc(chunkuuid)
+            chunkloc = self.master.get_chunkloc(chunkuuid)[0]
             chunk = chunkserver_clients[chunkloc].read(chunkuuid)
 	    temp['chunkloc']=chunkloc
 	    temp['chunkuid']=chunkuuid

@@ -1,6 +1,9 @@
 import uuid
 import time
 import zerorpc
+import sys
+import ast
+from apscheduler.schedulers.background import BackgroundScheduler
 
 
 class ZMaster:
@@ -16,7 +19,13 @@ class ZMaster:
         self.chunktable = {}  # chunkuuid to chunkloc mapping
         self.chunkservers = {}  # loc id to chunkserver mapping
         self.chunkclients = {}
-        # self.init_chunkservers()
+        #self.init_chunkservers()
+
+        #this schedules background tasks in separate thread
+        scheduler = BackgroundScheduler()
+        scheduler.add_job(self.collect_garbage, 'interval', minutes=0.2)
+        scheduler.add_job(self.replicate, 'interval', minutes=0.1)
+        scheduler.start()
 
     def get(self, ivar):
         """
@@ -65,11 +74,14 @@ class ZMaster:
     def get_chunkloc(self, chunkuuid):
         return self.chunktable[chunkuuid]
 
+    def see_chunkloc(self):
+        return self.chunktable
+
     def get_chunkuuids(self, filename):
         return self.filetable[filename]
 
-    def alloc(self, filename, num_chunks):  # return ordered chunk list
-        chunks = self.alloc_chunks(num_chunks)
+    def alloc(self, filename, num_chunks, seq):  # return ordered chunk list
+        chunks = self.alloc_chunks(num_chunks, filename, seq)
         self.filetable[filename] = chunks
         return chunks
 
@@ -98,10 +110,14 @@ class ZMaster:
 	    #chunkserver_client
 
     def collect_garbage(self):
-	print "in garbage"
-	chunklocs=self.filetable["#garbage_collection#"]
+	try:
+	   chunklocs=self.filetable["#garbage_collection#"]
+	except:
+	   self.filetable["#garbage_collection#"]={}
+	   chunklocs={}
 
 	if chunklocs:
+	   print "in garbage"
 	   for chunkloc in chunklocs.keys():
 	       # connect with each chunkserver. Change to check/establish later
        	       chunkserver_clients = self._establish_connection(chunkloc)
@@ -109,11 +125,55 @@ class ZMaster:
 	       #print "call delchunkfile fn() in chunkserver-"+str(chunkloc)
 	       flag=chunkserver_clients.delete(chunklocs[chunkloc])
 	       if flag==True:
-		  print "remove value from garbage collection for "+str(chunkloc)
+		  #print "remove value from garbage collection for "+str(chunkloc)
 		  del self.filetable["#garbage_collection#"][chunkloc]
+	else:
+	   print "nothing to clear in garbage"
 
     def replicate(self):
-	print "in replicate"
+	replicas={}
+	no_servers=self.num_chunkservers
+	reps=min(3, no_servers)
+	#self.chunktable={'test.txt$%#0$%#17229618-8c09-11e5-8017-000c29c12a87': [0], 'test.txt$%#1$%#17229619-8c09-11e5-8017-000c29c12a87': [1]}
+	
+	chunktable=self.chunktable
+	chunkserver={}
+	values=[]
+	for chunkid,values in chunktable.items():
+	    temp=str(values)
+	    values=ast.literal_eval(temp)
+	    while len(values) < reps:
+	       self.chunkrobin = (self.chunkrobin + 1) % self.num_chunkservers
+	       chunkloc = self.chunkrobin
+	       while chunkloc in values:
+		  self.chunkrobin = (self.chunkrobin + 1) % self.num_chunkservers
+	          chunkloc = self.chunkrobin
+
+	       #print "call connection to "+str(chunkloc)+" pass ",chunkid,temp
+	       if not chunkloc in chunkserver:
+	          try:
+	             chunkserver[chunkloc]=self._establish_connection(chunkloc)
+		  except:
+		     None
+
+	       if chunkserver[chunkloc].copy_chunk(chunkid,temp):
+		  print "Update chunktable"
+		  self.chunktable[chunkid].append(chunkloc)
+
+	       result={}
+	       result[chunkid]=temp
+	       try:
+		replicas[chunkloc].append(result)
+	       except:
+		replicas[chunkloc]=[]
+		replicas[chunkloc].append(result)
+
+	       values.append(chunkloc)
+
+	if len(replicas) == 0:
+	     print "Nothing to do in replicate"
+	else:
+	     print "replica: ",replicas
 
     def delete(self, filename, chunkuuids):  # rename for later garbage collection
 	if chunkuuids=="":
@@ -130,33 +190,39 @@ class ZMaster:
 	    #self.filetable[deleted_filename]=[]
 
 	for chunkid in chunkuuids:
-	    chunkloc = self.get_chunkloc(chunkid)
+	    chunkloc = self.get_chunkloc(chunkid)[0]
 	    try:
                 self.filetable[deleted_filename][chunkloc].append(chunkid)
 	    except:
 		self.filetable[deleted_filename][chunkloc]=[]
 		self.filetable[deleted_filename][chunkloc].append(chunkid)
+	    del self.chunktable[chunkid]
 
 	print self.filetable[deleted_filename]
-	self.collect_garbage()
+	#self.collect_garbage()
 
     def delete_chunks(self, filename, chunk_rm_ids):
 	chunkuuids=self.filetable[filename] 
 	self.filetable[filename]=[x for x in chunkuuids if x not in chunk_rm_ids]
 	self.delete(filename,chunk_rm_ids)
 	
-    def alloc_chunks(self, num_chunks):
+    def alloc_chunks(self, num_chunks, filename, seq):
         chunkuuids = []
+	tseq=seq
         for i in range(0, num_chunks):
-            chunkuuid = str(uuid.uuid1())
+            chunkuuid = filename+"$%#"+str(tseq)+"$%#"+str(uuid.uuid1())
             chunkloc = self.chunkrobin
-            self.chunktable[chunkuuid] = chunkloc
+            self.chunktable[chunkuuid] = [chunkloc]
             chunkuuids.append(chunkuuid)
             self.chunkrobin = (self.chunkrobin + 1) % self.num_chunkservers
+	    tseq+=1
         return chunkuuids
 
-    def alloc_append(self, filename, num_append_chunks):  # append chunks
+    def alloc_append(self, num_append_chunks, filename, seq):  # append chunks
+	print filename
         chunkuuids = self.filetable[filename]
-        append_chunkuuids = self.alloc_chunks(num_append_chunks)
+	tseq=seq
+        append_chunkuuids = self.alloc_chunks(num_append_chunks, filename, tseq)
         chunkuuids.extend(append_chunkuuids)
         return append_chunkuuids
+

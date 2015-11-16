@@ -1,5 +1,6 @@
 import os
 import zerorpc
+import ast
 
 
 class ZChunkserver:
@@ -27,12 +28,30 @@ class ZChunkserver:
             f.write(chunk)
         self.chunktable[chunkuuid] = local_filename
 
+    def rwrite(self, chunkuuid, chunk):
+        local_filename = self.chunk_filename(chunkuuid)
+	try:
+           with open(local_filename, "w") as f:
+             f.write(chunk)
+           self.chunktable[chunkuuid] = local_filename
+	   return True
+	except:
+	   return False
+
     def read(self, chunkuuid):
         data = None
         local_filename = self.chunk_filename(chunkuuid)
         with open(local_filename, "r") as f:
             data = f.read()
         return data
+
+    def _establish_connection(self,chunkloc):
+	chunkservers = self.master.get('chunkservers')
+        zclient = zerorpc.Client()
+        print 'Server connecting to chunkserver at %s' % chunkloc
+        zclient.connect(chunkservers[chunkloc])
+        zclient.print_name()
+        return zclient
 
     def delete(self, chunkuuids):
         for chunkid in chunkuuids:
@@ -44,6 +63,7 @@ class ZChunkserver:
 		 return True
             except:
               None
+
     def disp(self,a):
 	print str(a)+ str(self.chunkloc)
 
@@ -51,3 +71,19 @@ class ZChunkserver:
         local_filename = self.local_filesystem_root + "/" \
             + str(chunkuuid) + '.gfs'
         return local_filename
+
+    def copy_chunk(self,chunkid,chunklocs):
+	chunklocs=ast.literal_eval(chunklocs)
+	flag=False
+	for chunkloc in chunklocs:
+	  try:
+	    chunkserver=self._establish_connection(chunkloc)
+	    data=chunkserver.read(chunkid)
+	    flag=self.rwrite(chunkid,data)
+	    if flag:
+	       break
+	  except:
+	    flag=False
+	    print "soe"
+	
+	return flag
