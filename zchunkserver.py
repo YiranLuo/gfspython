@@ -1,7 +1,11 @@
 import os
+import subprocess
+import re
+
 import zerorpc
 from kazoo.client import KazooClient
 from kazoo.exceptions import NoNodeError
+
 import zutils
 
 
@@ -71,3 +75,24 @@ class ZChunkserver:
             + str(chunkuuid) + '.gfs'
         return local_filename
 
+    @staticmethod
+    def get_stats(self):
+
+        results = []
+        pattern = r' \d+[\.]?\d*'
+        first = ['ifstat', '-q', '-i', 'wlan0', '-S', '0.1', '1']  # get network traffic
+        second = ['df', '/']  # get free space
+        p1 = subprocess.Popen(first, stdout=subprocess.PIPE)
+        p2 = subprocess.Popen(second, stdout=subprocess.PIPE)
+
+        # get transfer speed and parse results
+        transfer_speed = p1.communicate()[0]
+        transfer_speed = re.findall(pattern, transfer_speed)
+        results.append(sum([float(num) for num in transfer_speed]))
+
+        # get storage info and parse results
+        storage = p2.communicate()[0]
+        storage = re.findall(r'\d+%', storage)  # find entry with %
+        results.append(storage[0][:-1])  # append entry without %
+
+        return results
