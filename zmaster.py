@@ -190,10 +190,11 @@ class ZMaster:
 	    #self.filetable[deleted_filename]=[]
 
 	for chunkid in chunkuuids:
-	    chunkloc = self.get_chunkloc(chunkid)[0]
-	    try:
+	    chunklocs = self.get_chunkloc(chunkid)
+	    for chunkloc in chunklocs:
+	      try:
                 self.filetable[deleted_filename][chunkloc].append(chunkid)
-	    except:
+	      except:
 		self.filetable[deleted_filename][chunkloc]=[]
 		self.filetable[deleted_filename][chunkloc].append(chunkid)
 	    del self.chunktable[chunkid]

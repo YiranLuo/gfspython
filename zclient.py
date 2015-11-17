@@ -100,11 +100,14 @@ class ZClient:
 
     def replacechunk(self, chunkdetails, data1, data2, chunksize):  
 	x=y=0
-	chunkserver_clients = self._establish_connection()
+	chunkserver_clients = self._establish_connection()#can be avoided, pass from the edit function
 	for x in range(0, len(data1), chunksize):
+		#and len(data2[x:x+chunksize])<=chunksize
 		if data1[x:x+chunksize]!=data2[x:x+chunksize] or len(data2[x:x+chunksize])<chunksize:
 		   print "replace '"+data1[x:x+chunksize]+"' with '"+data2[x:x+chunksize]+"'"
-		   chunkserver_clients[chunkdetails[y]['chunkloc']].write(chunkdetails[y]['chunkuid'], data2[x:x+chunksize])
+		   for i in chunkdetails[y]['chunkloc']:
+		       #chunkserver_clients[chunkdetails[y]['chunkloc']].write(chunkdetails[y]['chunkuid'], data2[x:x+chunksize])
+		       chunkserver_clients[i].write(chunkdetails[y]['chunkuid'], data2[x:x+chunksize])
 	        y+=1
 	return 'True'
 
@@ -143,8 +146,8 @@ class ZClient:
         for chunkuuid in chunkuuids:
 	    temp={}
 	    #maybe use subprocess to execute the download process in parallel
-            chunkloc = self.master.get_chunkloc(chunkuuid)[0]
-            chunk = chunkserver_clients[chunkloc].read(chunkuuid)
+            chunkloc = self.master.get_chunkloc(chunkuuid)
+            chunk = chunkserver_clients[chunkloc[0]].read(chunkuuid)
 	    temp['chunkloc']=chunkloc
 	    temp['chunkuid']=chunkuuid
 	    temp['chunk']=chunk
