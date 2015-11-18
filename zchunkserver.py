@@ -87,3 +87,16 @@ class ZChunkserver:
 	    print "soe"
 	
 	return flag
+
+    def rename(self, chunkids, filename, newfilename):
+	for chunkid in chunkids:
+	    local_filename = self.chunk_filename(chunkid)
+	    new_local_filename=local_filename.replace(filename, newfilename)
+	    print new_local_filename
+
+            try:
+                os.rename(local_filename, new_local_filename)
+            except WindowsError:
+                os.remove(new_local_filename)
+                os.rename(local_filename, new_local_filename)
+	return True

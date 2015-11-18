@@ -220,10 +220,31 @@ class ZMaster:
         return chunkuuids
 
     def alloc_append(self, num_append_chunks, filename, seq):  # append chunks
-	print filename
         chunkuuids = self.filetable[filename]
 	tseq=seq
         append_chunkuuids = self.alloc_chunks(num_append_chunks, filename, tseq)
         chunkuuids.extend(append_chunkuuids)
         return append_chunkuuids
+
+    def rename(self, result, filename, newfilename):
+	chunkserver={}
+	chunkids=[]
+	flag=True
+	for chunkloc, chunkids in result.items():
+	    try:
+               chunkserver[chunkloc]=self._establish_connection(chunkloc)
+            except:
+               print "Coudnt connect to chunkserver ",chunkloc
+
+	    flag=True
+	    no_keys=len(chunkids)
+	    flag=flag and chunkserver[chunkloc].rename(chunkids, filename, newfilename)
+
+	if flag:
+	   for chunkid in self.filetable[filename]:
+	       temp=str(chunkid).replace(filename, newfilename)
+	       self.chunktable[temp]=self.chunktable.pop(chunkid)
+	   self.filetable[newfilename]=ast.literal_eval(str(self.filetable.pop(filename)).replace(filename, newfilename))
+	else:
+	   print "Some error occured while renaming"
 

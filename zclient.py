@@ -146,6 +146,7 @@ class ZClient:
         for chunkuuid in chunkuuids:
 	    temp={}
 	    #maybe use subprocess to execute the download process in parallel
+	    #may throw error if chunkserver dies off in between
             chunkloc = self.master.get_chunkloc(chunkuuid)
             chunk = chunkserver_clients[chunkloc[0]].read(chunkuuid)
 	    temp['chunkloc']=chunkloc
@@ -184,3 +185,27 @@ class ZClient:
         self.master.updatevrsn(filename,1)
 	
 	
+    def rename(self, filename, newfilename):  
+	if self._exists(filename):
+	   if not self._exists(newfilename):
+	      chunkuids = self.master.get_chunkuuids(filename)
+
+              result={}
+	      for chunkuid in chunkuids:
+            	  #maybe use subprocess to execute the download process in parallel
+            	  #may throw error if chunkserver dies off in between
+            	  chunklocs = self.master.get_chunkloc(chunkuid)
+		  for chunkloc in chunklocs:
+		      try:
+			 result[chunkloc].append(chunkuid)
+		      except:
+			 result[chunkloc]=[]
+			 result[chunkloc].append(chunkuid)
+
+	      self.master.rename(result, filename, newfilename)
+
+           else:
+	      print "read error, file already exist: " + newfilename
+        else:
+	   print "read error, file does not exist: " + filename
+
