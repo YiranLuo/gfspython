@@ -3,6 +3,8 @@ import threading
 
 import zerorpc
 
+TARGET_CHUNKS = 15
+MIN_CHUNK_SIZE = 1024
 
 class ZClient:
 
@@ -28,9 +30,9 @@ class ZClient:
 
         start = time.time()
 
-        num_chunks = self._num_chunks(len(data))
-        chunkuuids = self.master.alloc(filename, num_chunks)
-        self._write_chunks(chunkuuids, data)
+        num_chunks, chunksize = self._num_chunks(len(data))
+        chunkuuids = self.master.alloc(filename, num_chunks, chunksize)
+        self._write_chunks(chunkuuids, data, chunksize)
 
         end = time.time()
         print "Total time writing was %0.2f" % ((end-start)*1000)
@@ -39,11 +41,12 @@ class ZClient:
         return self.master.exists(filename)
 
     def _num_chunks(self, size):
-        chunksize = self.master.get('chunksize')
-        return (size // chunksize) + (1 if size % chunksize > 0 else 0)
+        chunksize = min(MIN_CHUNK_SIZE, size/TARGET_CHUNKS)    
+        # chunksize = self.master.get('chunksize')
+        return (size // chunksize) + (1 if size % chunksize > 0 else 0), chunksize
 
-    def _write_chunks(self, chunkuuids, data):
-        chunksize = self.master.get('chunksize')
+    def _write_chunks(self, chunkuuids, data, chunksize):
+        # chunksize = self.master.get('chunksize')
         chunks = [data[x:x+chunksize] for x in range(0, len(data), chunksize)]
 
         # connect with each chunkserver. TODO Change to check/establish later
@@ -56,6 +59,7 @@ class ZClient:
             chunkloc = chunktable[chunkuuid]
             chunkserver_clients[chunkloc].write(chunkuuid, chunks[idx])
 
+        
     # TODO add argument here so that we only establish necessary connections
     def _establish_connection(self):
         """

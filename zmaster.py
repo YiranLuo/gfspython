@@ -17,15 +17,14 @@ class ZMaster:
         self.num_chunkservers = 0
         self.last_updated = 0  # time since last stats poll
         self.ip = zutils.get_myip() + ':' + str(master_port)
-        self.chunksize = 10
+        # self.chunksize = 10
         self.chunkrobin = 0
-        self.filetable = {}  # file to chunk mapping
-        self.chunktable = {}  # chunkuuid to chunkloc mapping
+        self.filetable = {}     # file to chunk mapping
+        self.chunktable = {}    # chunkuuid to chunkloc mapping
         self.chunkservers = {}  # loc id to chunkserver mapping
         self.chunkclients = {}  # zerorpc clients connected to chunkservers
-
-        self.chunkstats = {}  # stats for capacity and network load
-
+        self.chunkstats = {}    # stats for capacity and network load
+        self.chunksize = {}     # filename -> chunksize mapping
         self.zookeeper = KazooClient(hosts=zoo_ip)
         self._register_with_zookeeper(master_port)
 
@@ -155,9 +154,10 @@ class ZMaster:
     def get_chunkuuids(self, filename):
         return self.filetable[filename]
 
-    def alloc(self, filename, num_chunks):  # return ordered chunk list
+    def alloc(self, filename, num_chunks, chunksize):  # return ordered chunk list
         chunks = self.alloc_chunks(num_chunks)
         self.filetable[filename] = chunks
+        self.chunksize[filename] = chunksize
         return chunks
 
     def alloc_chunks(self, num_chunks):
