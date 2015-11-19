@@ -86,15 +86,15 @@ class ZClient:
          data = reduce(lambda x, y: x + y, chunks)  # reassemble in order
          return data
 
-    def deletechunk(self, chunkdetails, len_newdata, len_olddata, chunksize):  
+    def deletechunk(self, filename, chunkdetails, len_newdata, len_olddata, chunksize):  
 	x=y=0
-	filename="test.txt"
 	chunkids=[]
-        chunkserver_clients = self._establish_connection()
+        chunkserver_clients = self._establish_connection()# can reuse the connection thats already established
         for chunkuuid in chunkdetails:
 	    if x>len_newdata:
 	       chunkids.append(chunkuuid['chunkuid'])
 	    x+=chunksize
+	print "@ clinet",filename,chunkids
 	self.master.delete_chunks(filename,chunkids)
 	return 'True'
 
@@ -175,7 +175,7 @@ class ZClient:
 	   #print "deleted some contents"
 	   x=self.replacechunk(chunkdetails, olddata[0:len_newdata],newdata, chunksize)
 	   print "call fn() to delete chunks "+olddata[len_newdata+1:]+" from chunk server"
-	   x=self.deletechunk(chunkdetails, len_newdata, len_olddata, chunksize)
+	   x=self.deletechunk(filename, chunkdetails, len_newdata, len_olddata, chunksize)
 	elif len_newdata>len_olddata:
 	   #print "added some contents"
            x=self.replacechunk(chunkdetails, olddata, newdata[0:len_olddata], chunksize)

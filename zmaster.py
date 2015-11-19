@@ -203,6 +203,7 @@ class ZMaster:
 	#self.collect_garbage()
 
     def delete_chunks(self, filename, chunk_rm_ids):
+	print filename, chunk_rm_ids
 	chunkuuids=self.filetable[filename] 
 	self.filetable[filename]=[x for x in chunkuuids if x not in chunk_rm_ids]
 	self.delete(filename,chunk_rm_ids)
@@ -245,6 +246,50 @@ class ZMaster:
 	       temp=str(chunkid).replace(filename, newfilename)
 	       self.chunktable[temp]=self.chunktable.pop(chunkid)
 	   self.filetable[newfilename]=ast.literal_eval(str(self.filetable.pop(filename)).replace(filename, newfilename))
+	   self.versntable[newfilename]=self.versntable.pop(filename)
 	else:
 	   print "Some error occured while renaming"
 
+    def rm_from_ctable(self, chunkloc):
+	for values in self.chunktable.itervalues():
+	    values.remove(chunkloc)
+
+    def sort_filetable(self, filename):
+	temp=[]
+	temptable={}
+
+	for fileid in self.filetable[filename]:
+	    temptable[fileid.split("$%#")[1]]=fileid
+
+	keys=sorted(temptable.keys())
+	for key in keys:
+	    temp.append(temptable[key])
+	self.filetable[filename]=temp
+	    
+    def populate(self, files, chunkloc):
+	chunkloc=int(chunkloc)
+	for filename, chunkids in files.items():
+	    if self.exists(filename):
+	       print "operations for merging"
+	       for chunkid in chunkids:
+		   if chunkid not in self.filetable[filename]:
+		      self.filetable[filename].append(chunkid)
+		      self.chunktable[chunkid]=[chunkloc]
+		   else:
+		      self.chunktable[chunkid].append(chunkloc)
+	    else:
+	       print "operation for adding",filename
+	       self.filetable[filename]=chunkids
+	       temp={}
+	       for chunkid in chunkids:
+		   temp[chunkid]=[chunkloc]
+	       self.chunktable.update(temp)
+	       self.versntable[filename]=1
+	       #update chunksize table
+	    self.sort_filetable(filename)
+
+	print self.filetable
+	print self.chunktable
+	    
+	    
+	    

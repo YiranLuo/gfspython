@@ -14,6 +14,7 @@ class ZChunkserver:
         self.master.connect(self.masterloc)
         if not os.access(self.local_filesystem_root, os.W_OK):
             os.makedirs(self.local_filesystem_root)
+	self.populate()
 
     def print_name(self):
         """
@@ -100,3 +101,25 @@ class ZChunkserver:
                 os.remove(new_local_filename)
                 os.rename(local_filename, new_local_filename)
 	return True
+
+    def populate(self):
+	print "in populate"
+	local_dir=self.chunk_filename("").replace(".gfs","")
+	file_list=os.listdir(local_dir)
+	if file_list!=[]:
+	  files={}
+	  for items in file_list:
+	    items=items.replace(".gfs","")
+	    filename=items.split("$%#")[0]
+	    self.chunktable[items] = self.chunk_filename(items)
+	    try:
+		files[filename].append(items)
+	    except:
+		files[filename]=[]
+		files[filename].append(items)
+	
+	  self.master.populate(files, str(self.chunkloc))
+	else:
+	  print "nothing to populate"
+	
+
