@@ -62,14 +62,14 @@ class ZChunkserver:
 
     def write(self, chunkuuid, chunk):
         local_filename = self.chunk_filename(chunkuuid)
-        with open(local_filename, "w") as f:
+        with open(local_filename, "wb") as f:
             f.write(chunk)
         self.chunktable[chunkuuid] = local_filename
 
     def read(self, chunkuuid):
         data = None
         local_filename = self.chunk_filename(chunkuuid)
-        with open(local_filename, "r") as f:
+        with open(local_filename, "rb") as f:
             data = f.read()
         return data
 

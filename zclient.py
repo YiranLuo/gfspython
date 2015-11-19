@@ -2,17 +2,43 @@ import time
 import threading
 
 import zerorpc
+from kazoo.client import KazooClient
+from kazoo.recipe.lock import LockTimeout
+from kazoo.exceptions import NoNodeError
 
 TARGET_CHUNKS = 15
 MIN_CHUNK_SIZE = 1024
 
-class ZClient:
 
-    def __init__(self, ip='localhost', port=1400):
+class ZClient:
+    def __init__(self, zoo_ip='localhost:2181', port=1400):
         self.master = zerorpc.Client()
-        address = 'tcp://%s:%s' % (ip, str(port))
-        print 'Connecting to master at %s' % address
-        self.master.connect(address)
+        self.zookeeper = KazooClient(hosts=zoo_ip)
+
+        # connect to zookeeper for master ip, then connect to master
+        master_ip = self._connect_to_zookeeper()
+        self._connect_to_master(master_ip)
+
+    def _connect_to_master(self, master_ip):
+        try:
+            print 'Connecting to master at %s' % master_ip
+            self.master.connect(master_ip)
+        except:
+            print "Error connecting client to master"
+            raise
+
+    def _connect_to_zookeeper(self):
+        try:
+            self.zookeeper.start()
+            master_ip = self.zookeeper.get('master')[0]
+        except NoNodeError:
+            print "No master record in zookeeper"
+            raise  # TODO handle shadow master/waiting for master to reconnect later
+        except:
+            print "\n\tSome other error happened:"
+            raise
+
+        return master_ip
 
     def close(self):
         """Closes connection with master"""
@@ -30,18 +56,26 @@ class ZClient:
 
         start = time.time()
 
-        num_chunks, chunksize = self._num_chunks(len(data))
-        chunkuuids = self.master.alloc(filename, num_chunks, chunksize)
-        self._write_chunks(chunkuuids, data, chunksize)
+        # TODO retry here
+        try:
+            lock = self.zookeeper.Lock('files/' + filename)
+            lock.acquire(timeout=5)
+            num_chunks, chunksize = self._num_chunks(len(data))
+            chunkuuids = self.master.alloc(filename, num_chunks, chunksize)
+            self._write_chunks(chunkuuids, data, chunksize)
 
-        end = time.time()
-        print "Total time writing was %0.2f" % ((end-start)*1000)
+            end = time.time()
+            print "Total time writing was %0.2f" % ((end - start) * 1000)
+            lock.release()
+        except LockTimeout:
+            return "File in use - try again later"
+
 
     def _exists(self, filename):
         return self.master.exists(filename)
 
     def _num_chunks(self, size):
-        chunksize = min(MIN_CHUNK_SIZE, size/TARGET_CHUNKS)    
+        chunksize = max(MIN_CHUNK_SIZE, size / TARGET_CHUNKS)
         # chunksize = self.master.get('chunksize')
         return (size // chunksize) + (1 if size % chunksize > 0 else 0), chunksize
 
@@ -59,7 +93,6 @@ class ZClient:
             chunkloc = chunktable[chunkuuid]
             chunkserver_clients[chunkloc].write(chunkuuid, chunks[idx])
 
-        
     # TODO add argument here so that we only establish necessary connections
     def _establish_connection(self):
         """
@@ -94,28 +127,44 @@ class ZClient:
         :param filename:
         :return:  file contents
         """
+
         if not self._exists(filename):
             raise Exception("read error, file does not exist: " + filename)
-        # chunks = []
-        jobs = []
-        chunkuuids = self.master.get_chunkuuids(filename)
 
-        # TODO get partial table
-        chunktable = self.master.get('chunktable')
-        chunks = [None] * len(chunkuuids)
-        chunkserver_clients = self._establish_connection()
-        for i, chunkuuid in enumerate(chunkuuids):
-            chunkloc = chunktable[chunkuuid]
-            thread = threading.Thread(
-                target=self._read(chunkuuid, chunkserver_clients[chunkloc], chunks, i))
-            jobs.append(thread)
-            thread.start()
+        # TODO retry later
+        try:
+            lock = self.zookeeper.Lock('files/' + filename)
+            lock.acquire(timeout=5)
 
-        # block until all threads are done before reducing chunks
-        for j in jobs:
-            j.join()
+            # chunks = []
+            jobs = []
+            chunkuuids = self.master.get_chunkuuids(filename)
 
-        data = reduce(lambda x, y: x + y, chunks)  # reassemble in order
+            # TODO get partial table
+            chunktable = self.master.get('chunktable')
+            chunks = [None] * len(chunkuuids)
+            chunkserver_clients = self._establish_connection()
+            for i, chunkuuid in enumerate(chunkuuids):
+                print "reading " + str(i) + " " + str(chunkuuid)
+                chunkloc = chunktable[chunkuuid]
+                thread = threading.Thread(
+                    target=self._read(chunkuuid, chunkserver_clients[chunkloc], chunks, i))
+                jobs.append(thread)
+                thread.start()
+
+            # block until all threads are done before reducing chunks
+            for j in jobs:
+                j.join()
+
+            data = reduce(lambda x, y: x + y, chunks)  # reassemble in order
+            lock.release()
+
+        except LockTimeout:
+            return "File in use - try again later"
+        except:
+            print "Error reading file %s" % filename
+            raise
+
         return data
 
     @staticmethod
@@ -132,16 +181,18 @@ class ZClient:
         """
         chunk = chunkserver_client.read(chunkuuid)
         chunks[i] = chunk
+        print "Finished with chunk %d with len %d" % (i, len(chunk))
 
     def dump_metadata(self):
         self.master.dump_metadata()
 
+    # TODO change for variable chunksize
     def append(self, filename, data):
         if not self._exists(filename):
             raise Exception("append error, file does not exist: " + filename)
         num_chunks = self._num_chunks(len(data))
         append_chunkuuids = self.master.alloc_append(filename, num_chunks)
-        self._write_chunks(append_chunkuuids, data)
+        self._write_chunks(append_chunkuuids, data, 1024)  # change 1024
 
     def delete(self, filename):
         self.master.delete(filename)

@@ -1,6 +1,5 @@
 import uuid
 import time
-import operator
 import threading
 
 from kazoo.client import KazooClient
@@ -10,6 +9,7 @@ import zutils
 
 CHUNKSERVER_PATH = 'chunkserver/'
 UPDATE_FREQUENCY = 5  # update frequency in seconds
+
 
 class ZMaster:
 
@@ -182,11 +182,12 @@ class ZMaster:
         for filename, chunkuuids in self.filetable.items():
             print filename, "with", len(chunkuuids), "chunks"
         print "Chunkservers: ", len(self.chunkservers)
-        print "Chunkserver Data:"
-        for chunkuuid, chunkloc in sorted(self.chunktable.iteritems(),
-                                          key=operator.itemgetter(1)):
-            chunk = self.chunkclients[chunkloc].read(chunkuuid)
-            print chunkloc, chunkuuid, chunk
+        # TODO fix or remove
+        # print "Chunkserver Data:"
+        # for chunkuuid, chunkloc in sorted(self.chunktable.iteritems(),
+        #                                  key=operator.itemgetter(1)):
+        #    chunk = self.chunkclients[chunkloc].read(chunkuuid)
+        #    print chunkloc, chunkuuid, chunk
 
     def delete(self, filename):  # rename for later garbage collection
         chunkuuids = self.filetable[filename]
