@@ -1,2 +1,3 @@
 *.pyc
-zookeeper-*
+zoo*
+*test*
