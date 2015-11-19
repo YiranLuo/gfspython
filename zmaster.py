@@ -334,7 +334,21 @@ class ZMaster:
             try:
                 chunkserver[chunkloc]=self._establish_connection(chunkloc)
             except:
-                print "Coudnt connect to chunkserver ",chunkloc
+                print "Couldnt connect to chunkserver ",chunkloc
+
+            flag=True
+            no_keys=len(chunkids)
+            flag=flag and chunkserver[chunkloc].rename(chunkids, filename, newfilename)
+
+        if flag:
+           for chunkid in self.filetable[filename]:
+               temp=str(chunkid).replace(filename, newfilename)
+               self.chunktable[temp]=self.chunktable.pop(chunkid)
+           self.filetable[newfilename]=ast.literal_eval(str(self.filetable.pop(filename)).replace(filename, newfilename))
+           self.versntable[newfilename]=self.versntable.pop(filename)
+        else:
+           print "Some error occurred while renaming"
+
 
     def dump_metadata(self):
         print "Filetable:",
@@ -348,26 +362,6 @@ class ZMaster:
         #    chunk = self.chunkclients[chunkloc].read(chunkuuid)
         #    print chunkloc, chunkuuid, chunk
 
-    def delete(self, filename):  # rename for later garbage collection
-        chunkuuids = self.filetable[filename]
-        del self.filetable[filename]
-        timestamp = repr(time.time())
-        deleted_filename = "/hidden/deleted/" + timestamp + filename
-        self.filetable[deleted_filename] = chunkuuids
-        print "deleted file: " + filename + " renamed to " + deleted_filename + " ready for gc"
-
-            flag=True
-            no_keys=len(chunkids)
-            flag=flag and chunkserver[chunkloc].rename(chunkids, filename, newfilename)
-
-        if flag:
-           for chunkid in self.filetable[filename]:
-               temp=str(chunkid).replace(filename, newfilename)
-               self.chunktable[temp]=self.chunktable.pop(chunkid)
-           self.filetable[newfilename]=ast.literal_eval(str(self.filetable.pop(filename)).replace(filename, newfilename))
-           self.versntable[newfilename]=self.versntable.pop(filename)
-        else:
-           print "Some error occured while renaming"
 
     def rm_from_ctable(self, chunkloc):
         for values in self.chunktable.itervalues():
@@ -389,22 +383,22 @@ class ZMaster:
         chunkloc=int(chunkloc)
         for filename, chunkids in files.items():
             if self.exists(filename):
-               print "operations for merging"
-               for chunkid in chunkids:
-               if chunkid not in self.filetable[filename]:
-                  self.filetable[filename].append(chunkid)
-                  self.chunktable[chunkid]=[chunkloc]
-               else:
-                  self.chunktable[chunkid].append(chunkloc)
+                print "operations for merging"
+                for chunkid in chunkids:
+                    if chunkid not in self.filetable[filename]:
+                        self.filetable[filename].append(chunkid)
+                        self.chunktable[chunkid]=[chunkloc]
+                    else:
+                        self.chunktable[chunkid].append(chunkloc)
             else:
-               print "operation for adding",filename
-               self.filetable[filename]=chunkids
-               temp={}
-               for chunkid in chunkids:
-               temp[chunkid]=[chunkloc]
-               self.chunktable.update(temp)
-               self.versntable[filename]=1
-               # update chunksize table
+                print "operation for adding",filename
+                self.filetable[filename]=chunkids
+                temp={}
+                for chunkid in chunkids:
+                    temp[chunkid]=[chunkloc]
+                self.chunktable.update(temp)
+                self.versntable[filename]=1
+                # update chunksize table
             self.sort_filetable(filename)
 
         # print self.filetable

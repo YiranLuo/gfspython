@@ -52,8 +52,8 @@ class ZClient:
         """
 
         if self._exists(filename):
-            self.master.updatevrsn(filename,1)
-	        self.edit(filename,data)
+            self.master.updatevrsn(filename, 1)
+            self.edit(filename, data)
         else:
             seq=0
             self.master.updatevrsn(filename,0)
@@ -216,36 +216,36 @@ class ZClient:
         return 'True'
 
     def replacechunk(self, chunkdetails, data1, data2, chunksize):
-	    x=y=0
-	    chunkserver_clients = self._establish_connection()#can be avoided, pass from the edit function
-	    for x in range(0, len(data1), chunksize):
-		    #and len(data2[x:x+chunksize])<=chunksize
-		    if data1[x:x+chunksize]!=data2[x:x+chunksize] or len(data2[x:x+chunksize])<chunksize:
-		        print "replace '"+data1[x:x+chunksize]+"' with '"+data2[x:x+chunksize]+"'"
-		        for i in chunkdetails[y]['chunkloc']:
-		            #chunkserver_clients[chunkdetails[y]['chunkloc']].write(chunkdetails[y]['chunkuid'], data2[x:x+chunksize])
-		            chunkserver_clients[i].write(chunkdetails[y]['chunkuid'], data2[x:x+chunksize])
-	         y+=1
-	    return 'True'
+        x=y=0
+        chunkserver_clients = self._establish_connection()#can be avoided, pass from the edit function
+        for x in range(0, len(data1), chunksize):
+            if data1[x:x+chunksize]!=data2[x:x+chunksize] or len(data2[x:x+chunksize])<chunksize:
+                print "replace '"+data1[x:x+chunksize]+"' with '"+data2[x:x+chunksize]+"'"
+                for i in chunkdetails[y]['chunkloc']:
+                    chunkserver_clients[i].write(chunkdetails[y]['chunkuid'], data2[x:x+chunksize])
+
+
+            y+=1
+        return 'True'
 
     def append(self, filename, data):
         if not self._exists(filename):
             raise Exception("append error, file does not exist: " + filename)
-	    else:
+        else:
             num_chunks = self._num_chunks(len(data))
             chunkuuids = self.master.get_chunkuuids(filename)[-1]
-	        seq = int(chunkuuids.split('$%#')[1]) + 1
+            seq = int(chunkuuids.split('$%#')[1]) + 1
             append_chunkuuids = self.master.alloc_append(num_chunks, filename, seq)
             self._write_chunks(append_chunkuuids, data)
 
     def delete(self, filename):
-	    if not self._exists(filename):
+        if not self._exists(filename):
             raise Exception("append error, file does not exist: " + filename)
-	    else:
-	        self.master.delete(filename,"")
+        else:
+            self.master.delete(filename,"")
 
     def edit(self, filename,newdata):
-	    """
+        """
 	    Read the file with the read() from above and update only the
 	    chunkservers where the data in the chunk has changed
 	    """
@@ -254,8 +254,8 @@ class ZClient:
             raise Exception("read error, file does not exist: " + filename)
 
         chunks = []
-	    chunkdetails=[]
-	    i=0
+        chunkdetails=[]
+        i=0
         chunkuuids = self.master.get_chunkuuids(filename)
         #chunkserver_clients = self._establish_connection()
         #
@@ -273,21 +273,21 @@ class ZClient:
 
         #olddata = reduce(lambda x, y: x + y, chunks)  # reassemble in order
         olddata = self.read(filename)
-	    print "\nCurrent data in "+filename+"\n"+olddata+"\nEdited data:\n"+newdata
+        print "\nCurrent data in "+filename+"\n"+olddata+"\nEdited data:\n"+newdata
 
-	    newchunks = []
+        newchunks = []
         # chunksize = self.master.get('chunksize')
         chunksize = self.master.get_chunksize(filename)
-	    len_newdata=len(newdata)
-	    len_olddata=len(olddata)
+        len_newdata=len(newdata)
+        len_olddata=len(olddata)
         newchunks = [newdata[x:x+chunksize] for x in range(0, len_newdata, chunksize)]
 
-	    if len_newdata==len_olddata:
-	        if newdata == olddata:
-	            print "no change in contents"
-	        else:
-	            print "same size but content changed"
-	            x=self.replacechunk(chunkdetails, olddata, newdata, chunksize)
+        if len_newdata==len_olddata:
+            if newdata == olddata:
+                print "no change in contents"
+            else:
+                print "same size but content changed"
+                x=self.replacechunk(chunkdetails, olddata, newdata, chunksize)
         elif len_newdata<len_olddata:
             #print "deleted some contents"
             x=self.replacechunk(chunkdetails, olddata[0:len_newdata],newdata, chunksize)
@@ -303,9 +303,9 @@ class ZClient:
 
 
     def rename(self, filename, newfilename):
-	    if self._exists(filename):
-	        if not self._exists(newfilename):
-	            chunkuids = self.master.get_chunkuuids(filename)
+        if self._exists(filename):
+            if not self._exists(newfilename):
+                chunkuids = self.master.get_chunkuuids(filename)
                 result={}
                 for chunkuid in chunkuids:
                     #maybe use subprocess to execute the download process in parallel

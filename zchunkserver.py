@@ -98,13 +98,13 @@ class ZChunkserver:
 
     def rwrite(self, chunkuuid, chunk):
         local_filename = self.chunk_filename(chunkuuid)
-	try:
-           with open(local_filename, "wb") as f:
-             f.write(chunk)
-           self.chunktable[chunkuuid] = local_filename
-	   return True
-	except:
-	   return False
+        try:
+            with open(local_filename, "wb") as f:
+                f.write(chunk)
+            self.chunktable[chunkuuid] = local_filename
+            return True
+        except:
+            return False
 
     def read(self, chunkuuid):
         data = None
@@ -114,7 +114,7 @@ class ZChunkserver:
         return data
 
     def _establish_connection(self,chunkloc):
-	    chunkservers = self.master.get('chunkservers')
+        chunkservers = self.master.get('chunkservers')
         zclient = zerorpc.Client()
         print 'Server connecting to chunkserver at %s' % chunkloc
         zclient.connect(chunkservers[chunkloc])
@@ -125,19 +125,18 @@ class ZChunkserver:
         for chunkid in chunkuuids:
             filename = self.chunk_filename(chunkid)
             try:
-              if os.path.exists(filename):
-		 print "Removing "+filename
-                 os.remove(filename)
-		 return True
+                if os.path.exists(filename):
+                    print "Removing "+filename
+                    os.remove(filename)
+                    return True
             except:
-              None
+                None
 
     def disp(self,a):
-	print str(a)+ str(self.chunkloc)
+        print str(a)+ str(self.chunkloc)
 
     def chunk_filename(self, chunkuuid):
-        local_filename = self.local_filesystem_root + "/" \
-            + str(chunkuuid) + '.gfs'
+        local_filename = self.local_filesystem_root + "/" + str(chunkuuid) + '.gfs'
         return local_filename
 
     def copy_chunk(self,chunkid,chunklocs):
@@ -163,7 +162,7 @@ class ZChunkserver:
             print new_local_filename
             try:
                 os.rename(local_filename, new_local_filename)
-            except WindowsError:
+            except:
                 os.remove(new_local_filename)
                 os.rename(local_filename, new_local_filename)
         return True
@@ -173,20 +172,20 @@ class ZChunkserver:
         local_dir=self.chunk_filename("").replace(".gfs","")
         file_list=os.listdir(local_dir)
         if file_list!=[]:
-          files={}
-          for items in file_list:
-            items=items.replace(".gfs","")
-            filename=items.split("$%#")[0]
-            self.chunktable[items] = self.chunk_filename(items)
-            try:
-            files[filename].append(items)
-            except:
-            files[filename]=[]
-            files[filename].append(items)
+            files={}
+            for items in file_list:
+                items=items.replace(".gfs","")
+                filename=items.split("$%#")[0]
+                self.chunktable[items] = self.chunk_filename(items)
+                try:
+                    files[filename].append(items)
+                except:
+                    files[filename]=[]
+                    files[filename].append(items)
 
-          self.master.populate(files, str(self.chunkloc))
+            self.master.populate(files, str(self.chunkloc))
         else:
-          print "nothing to populate"
+            print "nothing to populate"
 
 
 
