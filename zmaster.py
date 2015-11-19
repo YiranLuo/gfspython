@@ -240,12 +240,13 @@ class ZMaster:
         for chunkid,values in chunktable.items():
             temp=str(values)
             values=ast.literal_eval(temp)
+            keys_list = self.chunkservers.keys()
             while len(values) < reps:
                 self.chunkrobin = (self.chunkrobin + 1) % self.num_chunkservers
-                chunkloc = self.chunkrobin
+                chunkloc = keys_list[self.chunkrobin]
                 while chunkloc in values:
                     self.chunkrobin = (self.chunkrobin + 1) % self.num_chunkservers
-                    chunkloc = self.chunkrobin
+                    chunkloc = keys_list[self.chunkrobin]
 
                 #print "call connection to "+str(chunkloc)+" pass ",chunkid,temp
                 if not chunkloc in chunkserver:

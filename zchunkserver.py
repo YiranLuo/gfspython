@@ -51,6 +51,8 @@ class ZChunkserver:
         master_ip = self.zookeeper.get('master')[0]
 
         path = self.zookeeper.create('chunkserver/', ephemeral=True, sequence=True)
+        #path = self.zookeeper.create('chunkserver/2', ephemeral=True)
+        
         self.chunkloc = path.replace('/chunkserver/', '')
         self.zookeeper.set(path, zutils.get_tcp(4400 + int(self.chunkloc)))
 

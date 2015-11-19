@@ -150,7 +150,7 @@ class ZClient:
                 chunkserver_clients = self._establish_connection()
                 for i, chunkuuid in enumerate(chunkuuids):
                     print "reading " + str(i) + " " + str(chunkuuid)
-                    chunkloc = chunktable[chunkuuid]
+                    chunkloc = chunktable[chunkuuid][0] #FIX ME LATER
                     thread = threading.Thread(
                         target=self._read(chunkuuid, chunkserver_clients[chunkloc], chunks, i))
                     jobs.append(thread)
