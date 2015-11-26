@@ -15,6 +15,7 @@ UPDATE_FREQUENCY = 5  # update frequency in seconds
 
 class ZMaster:
     def __init__(self, zoo_ip='localhost:2181', master_port=1400):
+        self.lock = threading.RLock()  # lock for modifying metadata
         self.num_chunkservers = 0
         self.last_updated = 0  # time since last stats poll
         self.ip = zutils.get_myip() + ':' + str(master_port)
@@ -23,10 +24,7 @@ class ZMaster:
         self.versntable = {}  # file version counter
         self.filetable = {}  # file to chunk mapping
         self.chunktable = {}  # chunkuuid to chunkloc mapping
-        self.filetable = {}  # file to chunk mapping
-        self.chunktable = {}  # chunkuuid to chunkloc mapping
         self.chunkservers = {}  # loc id to chunkserver mapping
-        self.chunkclients = {}
         # self.init_chunkservers()
         self.chunkclients = {}  # zerorpc clients connected to chunkservers
         self.chunkstats = {}  # stats for capacity and network load
@@ -76,12 +74,25 @@ class ZMaster:
                         else:
                             self._register_chunkserver(chunkserver_num, chunkserver_ip)
 
-                # TODO:  Handle deletion, replication checks, metadata update
                 elif len(children) < len(self.chunkservers):
-                    # call replication checks, etc here
-                    print "Chunkserver was removed"
-                    self.num_chunkservers -= 1
-                    print "now ", self.num_chunkservers, " chunkservers"
+                    self.lock.acquire()
+                    try:
+                        removed_servers = [chunkserver_num for chunkserver_num in self.chunkservers
+                                           if chunkserver_num not in children]
+                        for chunkserver_num in removed_servers:
+                            self._unregister_chunkserver(chunkserver_num)
+                            print "Chunkserver %s was removed" % chunkserver_num
+
+                        self.num_chunkservers = len(self.chunkservers)
+                        print "Now %d chunksrv" % self.num_chunkservers
+                        print "Calling replicate directly"
+                        self.replicate()
+                    except Exception as e:
+                        print "Some exception happened removing chunkserver: "
+                        print e.__doc__
+                        print e.message
+                    finally:
+                        self.lock.release()
         except:
             print "Unable to connect to zookeeper"
             raise
@@ -93,20 +104,41 @@ class ZMaster:
         :param chunkserver_ip:
         :return:  None
         """
+
+        self.lock.acquire()
         try:
             c = zerorpc.Client()
             c.connect(chunkserver_ip)
             self.chunkclients[chunkserver_num] = c
             self.chunkservers[chunkserver_num] = chunkserver_ip
+            self.num_chunkservers += 1
             # self.chunkstats[chunkserver_num] = c.get_stats()
             # TODO c.get_metadata() and add to filetable, handle errors without raising
+            print 'Chunksrv #%d registered at %s' % (int(chunkserver_num), chunkserver_ip)
+            print 'Number of chunkservers = %d' % self.num_chunkservers
         except:
             print "Error connecting master to chunksrv %s at %s" % (chunkserver_num, chunkserver_ip)
             raise
+        finally:
+            self.lock.release()
 
-        print 'Chunksrv #%d registered at %s' % (int(chunkserver_num), chunkserver_ip)
-        self.num_chunkservers += 1
-        print 'Number of chunkservers = %d' % self.num_chunkservers
+    def _unregister_chunkserver(self, chunkserver_num):
+
+        del self.chunkservers[chunkserver_num]
+        del self.chunkclients[chunkserver_num]
+        for filename, chunkid_list in self.filetable.items():
+            for chunkid in chunkid_list:
+                if chunkserver_num in self.chunktable[chunkid]:
+                    print "Removing %s from %s " % (chunkserver_num, chunkid)
+                    self.chunktable[chunkid].remove(chunkserver_num)
+                    if not self.chunktable[chunkid]:
+                        print "List is empty now, deleting file %s " % filename
+                        self.delete(filename, '')
+                        break  # breaks inner for loop
+
+        print "\t Chunktable = ", self.chunktable
+        print "\t Filetable = ", self.filetable
+        print "\t Chunkservers = ", self.chunkservers
 
     def get(self, ivar):
         """
@@ -231,50 +263,62 @@ class ZMaster:
             print "nothing to clear in garbage"
 
     def replicate(self):
-        replicas = {}
-        no_servers = self.num_chunkservers
-        reps = min(3, no_servers)
-        # self.chunktable={'test.txt$%#0$%#17229618-8c09-11e5-8017-000c29c12a87': [0], 'test.txt$%#1$%#17229619-8c09-11e5-8017-000c29c12a87': [1]}
 
-        chunktable = self.chunktable
-        chunkserver = {}
-        values = []
-        for chunkid, values in chunktable.items():
-            temp = str(values)
-            values = ast.literal_eval(temp)
-            keys_list = self.chunkservers.keys()
-            while len(values) < reps:
-                self.chunkrobin = (self.chunkrobin + 1) % self.num_chunkservers
-                chunkloc = keys_list[self.chunkrobin]
-                while chunkloc in values:
+        self.lock.acquire()
+        try:
+            replicas = {}
+            no_servers = self.num_chunkservers
+
+            # skip checking for copies if we have 0 chunkservers
+            if no_servers == 0:
+                return
+
+            reps = min(3, no_servers)
+            # self.chunktable={'test.txt$%#0$%#17229618-8c09-11e5-8017-000c29c12a87': [0], 'test.txt$%#1$%#17229619-8c09-11e5-8017-000c29c12a87': [1]}
+
+            chunktable = self.chunktable
+            chunkserver = {}
+            values = []
+            for chunkid, values in chunktable.items():
+                temp = str(values)
+                values = ast.literal_eval(temp)
+                keys_list = self.chunkservers.keys()
+                while len(values) < reps:
                     self.chunkrobin = (self.chunkrobin + 1) % self.num_chunkservers
                     chunkloc = keys_list[self.chunkrobin]
+                    while chunkloc in values:
+                        self.chunkrobin = (self.chunkrobin + 1) % self.num_chunkservers
+                        chunkloc = keys_list[self.chunkrobin]
 
-                # print "call connection to "+str(chunkloc)+" pass ",chunkid,temp
-                if not chunkloc in chunkserver:
+                    # print "call connection to "+str(chunkloc)+" pass ",chunkid,temp
+                    if not chunkloc in chunkserver:
+                        try:
+                            chunkserver[chunkloc] = self._establish_connection(chunkloc)
+                        except:
+                            None
+
+                    if chunkserver[chunkloc].copy_chunk(chunkid, temp):
+                        print "Update chunktable"
+                        self.chunktable[chunkid].append(chunkloc)
+
+                    result = {}
+                    result[chunkid] = temp
                     try:
-                        chunkserver[chunkloc] = self._establish_connection(chunkloc)
+                        replicas[chunkloc].append(result)
                     except:
-                        None
+                        replicas[chunkloc] = []
+                        replicas[chunkloc].append(result)
 
-                if chunkserver[chunkloc].copy_chunk(chunkid, temp):
-                    print "Update chunktable"
-                    self.chunktable[chunkid].append(chunkloc)
+                    values.append(chunkloc)
 
-                result = {}
-                result[chunkid] = temp
-                try:
-                    replicas[chunkloc].append(result)
-                except:
-                    replicas[chunkloc] = []
-                    replicas[chunkloc].append(result)
-
-                values.append(chunkloc)
-
-        if len(replicas) == 0:
-            print "Nothing to do in replicate"
-        else:
-            print "replica: ", replicas
+            if len(replicas) == 0:
+                print "Nothing to do in replicate"
+            else:
+                print "replica: ", replicas
+        except Exception as e:
+            print "Some exception happened: ", e.__doc__, e.message
+        finally:
+            self.lock.release()
 
     def delete(self, filename, chunkuuids):  # rename for later garbage collection
         if chunkuuids == "":
