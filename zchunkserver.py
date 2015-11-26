@@ -1,17 +1,16 @@
 import os
 import subprocess
 import re
+import ast
 
 import zerorpc
 from kazoo.client import KazooClient, KazooState
 from kazoo.exceptions import NoNodeError
 
 import zutils
-import ast
 
 
 class ZChunkserver:
-
     def __init__(self, zoo_ip='localhost:2181'):
         self.chunktable = {}
         self.chunkloc = None
@@ -36,7 +35,7 @@ class ZChunkserver:
         if not os.access(self.local_filesystem_root, os.W_OK):
             os.makedirs(self.local_filesystem_root)
 
-	    self.populate()
+        self.populate()
 
     def _register_with_zookeeper(self):
 
@@ -51,8 +50,8 @@ class ZChunkserver:
         master_ip = self.zookeeper.get('master')[0]
 
         path = self.zookeeper.create('chunkserver/', ephemeral=True, sequence=True)
-        #path = self.zookeeper.create('chunkserver/2', ephemeral=True)
-        
+        # path = self.zookeeper.create('chunkserver/2', ephemeral=True)
+
         self.chunkloc = path.replace('/chunkserver/', '')
         self.zookeeper.set(path, zutils.get_tcp(4400 + int(self.chunkloc)))
 
@@ -115,7 +114,7 @@ class ZChunkserver:
             data = f.read()
         return data
 
-    def _establish_connection(self,chunkloc):
+    def _establish_connection(self, chunkloc):
         chunkservers = self.master.get('chunkservers')
         zclient = zerorpc.Client()
         print 'Server connecting to chunkserver at %s' % chunkloc
@@ -128,40 +127,42 @@ class ZChunkserver:
             filename = self.chunk_filename(chunkid)
             try:
                 if os.path.exists(filename):
-                    print "Removing "+filename
+                    print "Removing " + filename
                     os.remove(filename)
                     return True
             except:
                 None
 
-    def disp(self,a):
-        print str(a)+ str(self.chunkloc)
+    def disp(self, a):
+        print str(a) + str(self.chunkloc)
 
     def chunk_filename(self, chunkuuid):
         local_filename = self.local_filesystem_root + "/" + str(chunkuuid) + '.gfs'
         return local_filename
 
-    def copy_chunk(self,chunkid,chunklocs):
-        chunklocs=ast.literal_eval(chunklocs)
-        flag=False
+    def copy_chunk(self, chunkid, chunklocs):
+        chunklocs = ast.literal_eval(chunklocs)
+        flag = False
         for chunkloc in chunklocs:
-          try:
-            chunkserver=self._establish_connection(chunkloc)
-            data=chunkserver.read(chunkid)
-            flag=self.rwrite(chunkid,data)
-            if flag:
-               break
-          except:
-            flag=False
-            print "soe"
+            try:
+                chunkserver = self._establish_connection(chunkloc)
+                data = chunkserver.read(chunkid)
+                flag = self.rwrite(chunkid, data)
+                if flag:
+                    break
+            except:
+                flag = False
+                print "soe"
 
         return flag
 
     def rename(self, chunkids, filename, newfilename):
         for chunkid in chunkids:
             local_filename = self.chunk_filename(chunkid)
-            new_local_filename=local_filename.replace(filename, newfilename)
-            print new_local_filename
+            new_local_filename = local_filename.split('/')
+            new_local_filename[-1] = new_local_filename[-1].replace(filename, newfilename)
+            new_local_filename = '/'.join(new_local_filename)
+            print "Changing %s to %s" % (local_filename, new_local_filename)
             try:
                 os.rename(local_filename, new_local_filename)
             except:
@@ -171,24 +172,21 @@ class ZChunkserver:
 
     def populate(self):
         print "in populate"
-        local_dir=self.chunk_filename("").replace(".gfs","")
-        file_list=os.listdir(local_dir)
-        if file_list!=[]:
-            files={}
+        local_dir = self.chunk_filename("").replace(".gfs", "")
+        print "local dir is ", local_dir
+        file_list = os.listdir(local_dir)
+        if file_list != []:
+            files = {}
             for items in file_list:
-                items=items.replace(".gfs","")
-                filename=items.split("$%#")[0]
+                items = items.replace(".gfs", "")
+                filename = items.split("$%#")[0]
                 self.chunktable[items] = self.chunk_filename(items)
                 try:
                     files[filename].append(items)
                 except:
-                    files[filename]=[]
+                    files[filename] = []
                     files[filename].append(items)
 
             self.master.populate(files, str(self.chunkloc))
         else:
             print "nothing to populate"
-
-
-
-

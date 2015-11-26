@@ -55,8 +55,8 @@ class ZClient:
             self.master.updatevrsn(filename, 1)
             self.edit(filename, data)
         else:
-            seq=0
-            self.master.updatevrsn(filename,0)
+            seq = 0
+            self.master.updatevrsn(filename, 0)
 
             start = time.time()
 
@@ -74,7 +74,6 @@ class ZClient:
             except LockTimeout:
                 return "File in use - try again later"
 
-
     def _exists(self, filename):
         return self.master.exists(filename)
 
@@ -83,7 +82,7 @@ class ZClient:
         return (size // chunksize) + (1 if size % chunksize > 0 else 0), chunksize
 
     def _write_chunks(self, chunkuuids, data, chunksize):
-        chunks = [data[x:x+chunksize] for x in range(0, len(data), chunksize)]
+        chunks = [data[x:x + chunksize] for x in range(0, len(data), chunksize)]
 
         # connect with each chunkserver. TODO Change to check/establish later
         chunkserver_clients = self._establish_connection()
@@ -133,8 +132,8 @@ class ZClient:
         if not self._exists(filename):
             raise Exception("read error, file does not exist: " + filename)
 
-        if filename=="#garbage_collection#":
-           print self.master.get_chunkuuids(filename)
+        if filename == "#garbage_collection#":
+            print self.master.get_chunkuuids(filename)
         else:
             try:
                 lock = self.zookeeper.Lock('files/' + filename)
@@ -149,8 +148,7 @@ class ZClient:
                 chunks = [None] * len(chunkuuids)
                 chunkserver_clients = self._establish_connection()
                 for i, chunkuuid in enumerate(chunkuuids):
-                    print "reading " + str(i) + " " + str(chunkuuid)
-                    chunkloc = chunktable[chunkuuid][0] #FIX ME LATER
+                    chunkloc = chunktable[chunkuuid][0]  # FIX ME LATER
                     thread = threading.Thread(
                         target=self._read(chunkuuid, chunkserver_clients[chunkloc], chunks, i))
                     jobs.append(thread)
@@ -168,12 +166,69 @@ class ZClient:
                 return None
             except:
                 print "Error reading file %s" % filename
+                lock.release()
                 raise
 
             return data
 
+    def read_with_details(self, filename):  # get metadata, then read chunks direct
+        """
+        Connects to each chunkserver and reads the chunks in order, then
+        assembles the file by reducing.  Returns details for editing
+        :param filename:
+        :return:  details, file contents
+        """
+
+        if not self._exists(filename):
+            raise Exception("read error, file does not exist: " + filename)
+
+        if filename == "#garbage_collection#":
+            print self.master.get_chunkuuids(filename)
+        else:
+            try:
+                lock = self.zookeeper.Lock('files/' + filename)
+                lock.acquire(timeout=5)
+
+                # chunks = []
+                jobs = []
+                chunkuuids = self.master.get_chunkuuids(filename)
+                chunkdetails = []
+                # TODO get partial table
+                chunktable = self.master.get('chunktable')
+                chunks = [None] * len(chunkuuids)
+                chunkserver_clients = self._establish_connection()
+                for i, chunkuuid in enumerate(chunkuuids):
+                    chunkloc = chunktable[chunkuuid]  # TODO FIX ME LATER, reads from [0] below
+                    temp = {'chunkloc': chunkloc,
+                            'chunkuid': chunkuuid}
+                    chunkdetails.append(temp)
+
+                    thread = threading.Thread(
+                        target=self._read(chunkuuid, chunkserver_clients[chunkloc[0]],
+                                          chunks, i, temp))
+                    jobs.append(thread)
+                    thread.start()
+
+                # block until all threads are done before reducing chunks
+                for j in jobs:
+                    j.join()
+
+                data = reduce(lambda x, y: x + y, chunks)  # reassemble in order
+                lock.release()
+
+                print chunkdetails
+
+            except LockTimeout:
+                print "File in use - try again later"
+                return None
+            except:
+                print "Error reading file %s" % filename
+                raise
+
+            return data, chunkdetails
+
     @staticmethod
-    def _read(chunkuuid, chunkserver_client, chunks, i):
+    def _read(chunkuuid, chunkserver_client, chunks, i, temp=None):
         """
         Gets appropriate chunkserver to contact from master, and retrieves the chunk with
         chunkuuid. This function is passed to a threading service. Thread safe since each thread
@@ -186,46 +241,48 @@ class ZClient:
         """
         chunk = chunkserver_client.read(chunkuuid)
         chunks[i] = chunk
-        print "Finished with chunk %d with len %d" % (i, len(chunk))
+        # update temp with chunk for edit details function if exists
+        if temp:
+            temp['chunk'] = chunk
 
     def dump_metadata(self):
         self.master.dump_metadata()
 
     # TODO change for variable chunksize
-    def append(self, filename, data):
-        if not self._exists(filename):
-            raise Exception("append error, file does not exist: " + filename)
-        num_chunks = self._num_chunks(len(data))
-        append_chunkuuids = self.master.alloc_append(filename, num_chunks)
-        self._write_chunks(append_chunkuuids, data, 1024)  # change 1024
-
-    def delete(self, filename):
-        self.master.delete(filename)
+    # def append(self, filename, data):
+    #     if not self._exists(filename):
+    #         raise Exception("append error, file does not exist: " + filename)
+    #     num_chunks = self._num_chunks(len(data))
+    #     append_chunkuuids = self.master.alloc_append(filename, num_chunks)
+    #     self._write_chunks(append_chunkuuids, data, 1024)  # change 1024
 
     ####################################################################################
+
     def deletechunk(self, filename, chunkdetails, len_newdata, len_olddata, chunksize):
-        x=y=0
-        chunkids=[]
-        chunkserver_clients = self._establish_connection()# can reuse the connection thats already established
+        x = y = 0
+        chunkids = []
+        chunkserver_clients = self._establish_connection()  # can reuse the connection thats already established
         for chunkuuid in chunkdetails:
-            if x>len_newdata:
+            if x > len_newdata:
                 chunkids.append(chunkuuid['chunkuid'])
-            x+=chunksize
-        #print "@ client",filename,chunkids
-        self.master.delete_chunks(filename,chunkids)
+            x += chunksize
+        # print "@ client",filename,chunkids
+        self.master.delete_chunks(filename, chunkids)
         return 'True'
 
     def replacechunk(self, chunkdetails, data1, data2, chunksize):
-        x=y=0
-        chunkserver_clients = self._establish_connection()#can be avoided, pass from the edit function
+        x = y = 0
+        chunkserver_clients = self._establish_connection()  # can be avoided, pass from the edit function
         for x in range(0, len(data1), chunksize):
-            if data1[x:x+chunksize]!=data2[x:x+chunksize] or len(data2[x:x+chunksize])<chunksize:
-                print "replace '"+data1[x:x+chunksize]+"' with '"+data2[x:x+chunksize]+"'"
+            if data1[x:x + chunksize] != data2[x:x + chunksize] or len(
+                    data2[x:x + chunksize]) < chunksize:
+                print "replace '" + data1[x:x + chunksize] + "' with '" + data2[
+                                                                          x:x + chunksize] + "'"
                 for i in chunkdetails[y]['chunkloc']:
-                    chunkserver_clients[i].write(chunkdetails[y]['chunkuid'], data2[x:x+chunksize])
+                    chunkserver_clients[i].write(chunkdetails[y]['chunkuid'],
+                                                 data2[x:x + chunksize])
 
-
-            y+=1
+            y += 1
         return 'True'
 
     def append(self, filename, data):
@@ -242,80 +299,78 @@ class ZClient:
         if not self._exists(filename):
             raise Exception("append error, file does not exist: " + filename)
         else:
-            self.master.delete(filename,"")
+            self.master.delete(filename, "")
 
-    def edit(self, filename,newdata):
+    def edit(self, filename, newdata):
         """
-	    Read the file with the read() from above and update only the
-	    chunkservers where the data in the chunk has changed
-	    """
+        Read the file with the read() from above and update only the
+        chunkservers where the data in the chunk has changed
+        """
 
         if not self._exists(filename):
             raise Exception("read error, file does not exist: " + filename)
 
         chunks = []
-        chunkdetails=[]
-        i=0
+        i = 0
         chunkuuids = self.master.get_chunkuuids(filename)
-        #chunkserver_clients = self._establish_connection()
+        # chunkserver_clients = self._establish_connection()
         #
-        #for chunkuuid in chunkuuids:
-	     #   temp={}
-	        #maybe use subprocess to execute the download process in parallel
-	        #may throw error if chunkserver dies off in between
-         #   chunkloc = self.master.get_chunkloc(chunkuuid)
-         #   chunk = chunkserver_clients[chunkloc[0]].read(chunkuuid)
-	     #   temp['chunkloc']=chunkloc
-	     #   temp['chunkuid']=chunkuuid
-	     #   temp['chunk']=chunk
-	     #   chunkdetails.append(temp)
-         #   chunks.append(chunk)
+        # for chunkuuid in chunkuuids:
+        #   temp={}
+        # maybe use subprocess to execute the download process in parallel
+        # may throw error if chunkserver dies off in between
+        #   chunkloc = self.master.get_chunkloc(chunkuuid)
+        #   chunk = chunkserver_clients[chunkloc[0]].read(chunkuuid)
+        #   temp['chunkloc']=chunkloc
+        #   temp['chunkuid']=chunkuuid
+        #   temp['chunk']=chunk
+        #   chunkdetails.append(temp)
+        #   chunks.append(chunk)
 
-        #olddata = reduce(lambda x, y: x + y, chunks)  # reassemble in order
-        olddata = self.read(filename)
-        print "\nCurrent data in "+filename+"\n"+olddata+"\nEdited data:\n"+newdata
+        # olddata = reduce(lambda x, y: x + y, chunks)  # reassemble in order
+        olddata, chunkdetails = self.read_with_details(filename)
+        print "\nCurrent data in " + filename + "\n" + olddata + "\nEdited data:\n" + newdata
 
-        newchunks = []
+        # newchunks = []
         # chunksize = self.master.get('chunksize')
         chunksize = self.master.get_chunksize(filename)
-        len_newdata=len(newdata)
-        len_olddata=len(olddata)
-        newchunks = [newdata[x:x+chunksize] for x in range(0, len_newdata, chunksize)]
+        len_newdata = len(newdata)
+        len_olddata = len(olddata)
+        # newchunks = [newdata[x:x + chunksize] for x in range(0, len_newdata, chunksize)]
 
-        if len_newdata==len_olddata:
+        if len_newdata == len_olddata:
             if newdata == olddata:
                 print "no change in contents"
             else:
                 print "same size but content changed"
-                x=self.replacechunk(chunkdetails, olddata, newdata, chunksize)
-        elif len_newdata<len_olddata:
-            #print "deleted some contents"
-            x=self.replacechunk(chunkdetails, olddata[0:len_newdata],newdata, chunksize)
-            print "call fn() to delete chunks "+olddata[len_newdata+1:]+" from chunk server"
-            x=self.deletechunk(filename, chunkdetails, len_newdata, len_olddata, chunksize)
-        elif len_newdata>len_olddata:
-            #print "added some contents"
-            x=self.replacechunk(chunkdetails, olddata, newdata[0:len_olddata], chunksize)
-            print "call fn() to add chunks '"+newdata[len_olddata+1:]+"' to chunk server"
+                x = self.replacechunk(chunkdetails, olddata, newdata, chunksize)
+        elif len_newdata < len_olddata:
+            # print "deleted some contents"
+            x = self.replacechunk(chunkdetails, olddata[0:len_newdata], newdata, chunksize)
+            print "call fn() to delete chunks " + olddata[len_newdata + 1:] + " from chunk server"
+            x = self.deletechunk(filename, chunkdetails, len_newdata, len_olddata, chunksize)
+        elif len_newdata > len_olddata:
+            # print "added some contents"
+            x = self.replacechunk(chunkdetails, olddata, newdata[0:len_olddata], chunksize)
+            print "call fn() to add chunks '" + newdata[len_olddata + 1:] + "' to chunk server"
             self.append(filename, newdata[len_olddata:])
 
-        self.master.updatevrsn(filename,1)
-
+        self.master.updatevrsn(filename, 1)
 
     def rename(self, filename, newfilename):
         if self._exists(filename):
             if not self._exists(newfilename):
                 chunkuids = self.master.get_chunkuuids(filename)
-                result={}
+                result = {}
                 for chunkuid in chunkuids:
-                    #maybe use subprocess to execute the download process in parallel
-                    #may throw error if chunkserver dies off in between
+                    # maybe use subprocess to execute the download process in parallel
+                    # may throw error if chunkserver dies off in between
                     chunklocs = self.master.get_chunkloc(chunkuid)
                     for chunkloc in chunklocs:
                         try:
                             result[chunkloc].append(chunkuid)
                         except:
-                            result[chunkloc]=[]
+                            result[chunkloc] = []
                             result[chunkloc].append(chunkuid)
 
                     self.master.rename(result, filename, newfilename)
@@ -324,4 +379,3 @@ class ZClient:
                 print "read error, file already exist: " + newfilename
         else:
             print "read error, file does not exist: " + filename
-
