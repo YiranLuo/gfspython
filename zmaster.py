@@ -208,11 +208,7 @@ class ZMaster:
     def get_chunkuuids(self, filename):
         return self.filetable[filename]
 
-    def alloc(self, filename, num_chunks, chunksize, seq):  # return ordered chunk list
-        chunks = self.alloc_chunks(num_chunks, filename, seq)
-        self.filetable[filename] = chunks
-        self.chunksize[filename] = chunksize
-        return chunks
+
 
     ###############################################################################
 
@@ -352,6 +348,39 @@ class ZMaster:
         chunkuuids = self.filetable[filename]
         self.filetable[filename] = [x for x in chunkuuids if x not in chunk_rm_ids]
         self.delete(filename, chunk_rm_ids)
+
+    def next_chunkloc(self, keys_list):
+        next_chunkloc = keys_list[self.chunkrobin]
+        self.chunkrobin = (self.chunkrobin + 1) % self.num_chunkservers
+        return next_chunkloc
+
+    def alloc2(self, filename, num_chunks, chunksize, seq):  # return ordered chunk map to server
+        chunks = self.alloc2_chunks(num_chunks, filename, seq)
+        # self.filetable[filename] = chunks  don't update filetable until writing successful
+        self.chunksize[filename] = chunksize
+        return chunks
+
+    def alloc2_chunks(self, num_chunks, filename, seq):
+        chunkuuids = {}
+        tseq = seq
+        keys_list = self.chunkservers.keys()
+        for i in range(0, num_chunks):
+            chunkuuid = filename + "$%#" + str(tseq) + "$%#" + str(uuid.uuid1())
+
+            if self.num_chunkservers > 1:
+                chunkuuids[chunkuuid] = [self.next_chunkloc(keys_list),
+                                         self.next_chunkloc(keys_list)]
+            else:
+                chunkuuids[chunkuuid] = [self.next_chunkloc(keys_list)]
+            tseq += 1
+
+        return chunkuuids
+
+    def alloc(self, filename, num_chunks, chunksize, seq):  # return ordered chunk list
+        chunks = self.alloc_chunks(num_chunks, filename, seq)
+        self.filetable[filename] = chunks
+        self.chunksize[filename] = chunksize
+        return chunks
 
     def alloc_chunks(self, num_chunks, filename, seq):
         chunkuuids = []

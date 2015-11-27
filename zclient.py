@@ -5,9 +5,10 @@ import zerorpc
 from kazoo.client import KazooClient
 from kazoo.recipe.lock import LockTimeout
 from kazoo.exceptions import NoNodeError
+from zerorpc.exceptions import LostRemote
 
 TARGET_CHUNKS = 15
-MIN_CHUNK_SIZE = 1024
+MIN_CHUNK_SIZE = 591024
 
 
 class ZClient:
@@ -65,8 +66,8 @@ class ZClient:
                 lock = self.zookeeper.Lock('files/' + filename)
                 lock.acquire(timeout=5)
                 num_chunks, chunksize = self._num_chunks(len(data))
-                chunkuuids = self.master.alloc(filename, num_chunks, chunksize, seq)
-                self._write_chunks(chunkuuids, data, chunksize)
+                chunkuuids = self.master.alloc2(filename, num_chunks, chunksize, seq)
+                self._write_chunks2(chunkuuids, data, chunksize)
 
                 end = time.time()
                 print "Total time writing was %0.2f" % ((end - start) * 1000)
@@ -94,6 +95,26 @@ class ZClient:
             chunkloc = chunktable[chunkuuid][0]
             chunkserver_clients[chunkloc].write(chunkuuid, chunks[idx])
 
+    def _write_chunks2(self, chunkuuids, data, chunksize):
+        chunks = [data[x:x + chunksize] for x in range(0, len(data), chunksize)]
+
+        # connect with each chunkserver. TODO Change to check/establish later
+        chunkserver_clients = self._establish_connection()
+        print "connection established"
+        raw_input('wait')
+        # chunkuuids is already a table
+        # write to each chunkserver
+        for idx, chunkuuid in enumerate(chunkuuids):
+            chunkloc = chunkuuids[chunkuuid][0]
+            try:
+                chunkserver_clients[chunkloc].write(chunkuuid, chunks[idx])
+            except LostRemote:
+                print "Lost that remote !"
+            except Exception as e:
+                print 'Failed writing chunk %d to srv %d' % (idx, chunkloc)
+                print e.__doc__
+                print e.message
+
     # TODO add argument here so that we only establish necessary connections
     def _establish_connection(self):
         """
@@ -106,9 +127,13 @@ class ZClient:
         for chunkserver_num, chunkserver_ip in chunkservers.iteritems():
             zclient = zerorpc.Client()
             print 'Client connecting to chunkserver %s at %s' % (chunkserver_num, chunkserver_ip)
-            zclient.connect(chunkserver_ip)
-            zclient.print_name()
-            chunkserver_clients[chunkserver_num] = zclient
+            try:
+                zclient.connect(chunkserver_ip)
+                zclient.print_name()
+                chunkserver_clients[chunkserver_num] = zclient
+            except LostRemote:
+                print "Lost it in established connection, passing up"
+                raise
 
         return chunkserver_clients
 
