@@ -63,8 +63,8 @@ class ZMaster:
                     print "New chunkserver(s) detected"
                     # This creates a watch function for each new chunk server, where the
                     # master waits to register until the data(ip address) is updated
-                    new_chunkservers = (chunkserver_num for chunkserver_num in children
-                                        if chunkserver_num not in self.chunkservers)
+                    new_chunkservers = [chunkserver_num for chunkserver_num in children
+                                        if chunkserver_num not in self.chunkservers]
                     for chunkserver_num in new_chunkservers:
                         chunkserver_ip = self.zookeeper.get(CHUNKSERVER_PATH + chunkserver_num)[0]
                         # if IP is not set yet, assign watcher to wait
@@ -109,6 +109,11 @@ class ZMaster:
         try:
             c = zerorpc.Client()
             c.connect(chunkserver_ip)
+            files, chunkloc = c.populate()
+            if files:
+                print 'Populating files'
+                self.populate(files, chunkloc)
+
             self.chunkclients[chunkserver_num] = c
             self.chunkservers[chunkserver_num] = chunkserver_ip
             self.num_chunkservers += 1
@@ -455,7 +460,7 @@ class ZMaster:
         self.filetable[filename] = temp
 
     def populate(self, files, chunkloc):
-        chunkloc = int(chunkloc)
+        print files, chunkloc, "in master"
         for filename, chunkids in files.items():
             if self.exists(filename):
                 print "operations for merging"

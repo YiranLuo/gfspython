@@ -68,7 +68,7 @@ class ZChunkserver:
         local_filename = self.chunk_filename(chunkuuid)
         with open(local_filename, "wb") as f:
             f.write(chunk)
-        self.chunktable[chunkuuid] = local_filename
+            self.chunktable[chunkuuid] = local_filename
 
     def close(self):
         self.master.close()
@@ -78,7 +78,7 @@ class ZChunkserver:
 
         results = []
         pattern = r' \d+[\.]?\d*'
-        first = ['ifstat', '-q', '-i', 'wlan0', '-S', '0.1', '1']  # get network traffic
+        first = ['ifstat', '-q', '-i', 'enP0s3', '-S', '0.2', '1']  # get network traffic
         second = ['df', '/']  # get free space
         p1 = subprocess.Popen(first, stdout=subprocess.PIPE)
         p2 = subprocess.Popen(second, stdout=subprocess.PIPE)
@@ -171,7 +171,7 @@ class ZChunkserver:
         return True
 
     def populate(self):
-        print "in populate"
+        print "in populate, chunkloc=", self.chunkloc
         local_dir = self.chunk_filename("").replace(".gfs", "")
         print "local dir is ", local_dir
         file_list = os.listdir(local_dir)
@@ -187,6 +187,9 @@ class ZChunkserver:
                     files[filename] = []
                     files[filename].append(items)
 
-            self.master.populate(files, str(self.chunkloc))
+            print "files=%s, chunkloc=%s" % (files, self.chunkloc)
+            #self.master.populate(files, str(self.chunkloc))
+            return files, self.chunkloc
         else:
             print "nothing to populate"
+            return None, None

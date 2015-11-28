@@ -66,6 +66,8 @@ class ZClient:
                 lock = self.zookeeper.Lock('files/' + filename)
                 lock.acquire(timeout=5)
                 num_chunks, chunksize = self._num_chunks(len(data))
+                #chunkuuids = self.master.alloc(filename, num_chunks, chunksize, seq)
+                #self._write_chunks(chunkuuids, data, chunksize)
                 chunkuuids = self.master.alloc2(filename, num_chunks, chunksize, seq)
                 self._write_chunks2(chunkuuids, data, chunksize)
 
@@ -104,16 +106,31 @@ class ZClient:
         raw_input('wait')
         # chunkuuids is already a table
         # write to each chunkserver
-        for idx, chunkuuid in enumerate(chunkuuids):
-            chunkloc = chunkuuids[chunkuuid][0]
-            try:
-                chunkserver_clients[chunkloc].write(chunkuuid, chunks[idx])
-            except LostRemote:
-                print "Lost that remote !"
-            except Exception as e:
-                print 'Failed writing chunk %d to srv %d' % (idx, chunkloc)
-                print e.__doc__
-                print e.message
+
+        finished = False
+        failed_chunkservers = []
+        while not finished:
+            for idx, chunkuuid in enumerate(chunkuuids):
+                chunklocs = [c_loc for c_loc in chunkuuids[chunkuuid] if c_loc not in failed_chunkservers]
+
+                if not chunklocs:
+                    'No chunkservers to write to, write failed'
+                    return False
+                else:
+                    try:
+                        chunkloc = chunklocs[0]
+                        print 'Trying to write chunk# %d to cl %s' % (idx, chunkloc)
+                        chunkserver_clients[chunkloc].write(chunkuuid, chunks[idx])
+                    except LostRemote:
+                        print "Lost remote"
+                        failed_chunkservers.append(chunkloc)
+                        break
+                    except Exception as e:
+                        print 'Failed writing chunk %d to srv %s' % (idx, chunkloc)
+                        print e.__doc__
+                        print e.message
+
+            finished = True
 
     # TODO add argument here so that we only establish necessary connections
     def _establish_connection(self):
