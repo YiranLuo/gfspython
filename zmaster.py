@@ -217,16 +217,22 @@ class ZMaster:
     def get_chunkuuids(self, filename):
         return self.filetable[filename]
 
+    def get_last_chunkuuid(self, filename):
+        chunkuuid = self.filetable[filename][-1]
+        return chunkuuid
+
     # TODO what about same file exists?
-    def add_file(self, filename, chunkmap):
+    def update_file(self, filename, chunklist):
         self.lock.acquire()
         try:
-            self.filetable[filename] = []
-            for chunkuuid, chunkloc in chunkmap.iteritems():
+            if filename not in self.filetable:
+                self.filetable[filename] = []
+
+            for chunkuuid, chunkloc in chunklist:
                 self.filetable[filename].append(chunkuuid)
                 self.chunktable[chunkuuid] = [chunkloc]
         except Exception as e:
-            self._print_exception('updating metadata in master after adding file', e)
+            self._print_exception('updating file', e)
         finally:
             self.lock.release()
 
@@ -413,17 +419,22 @@ class ZMaster:
         if self.num_chunkservers == 0:
             return None
 
-        chunkuuids = {}
+        # chunkuuids = {}
+        chunkuuids = []
         tseq = seq
         keys_list = self.chunkservers.keys()
         for i in range(0, num_chunks):
             chunkuuid = filename + "$%#" + str(tseq) + "$%#" + str(uuid.uuid1())
 
             if self.num_chunkservers > 1:
-                chunkuuids[chunkuuid] = [self.next_chunkloc(keys_list),
-                                         self.next_chunkloc(keys_list)]
+                # chunkuuids[chunkuuid] = [self.next_chunkloc(keys_list),
+                #                         self.next_chunkloc(keys_list)]
+                chunkuuids.append((chunkuuid,
+                                   [self.next_chunkloc(keys_list), self.next_chunkloc(keys_list)]))
             else:
-                chunkuuids[chunkuuid] = [self.next_chunkloc(keys_list)]
+                # chunkuuids[chunkuuid] = [self.next_chunkloc(keys_list)]
+                chunkuuids.append((chunkuuid,
+                                   [self.next_chunkloc(keys_list)]))
             tseq += 1
 
         return chunkuuids
