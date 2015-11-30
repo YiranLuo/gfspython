@@ -1,5 +1,6 @@
 import time
 import threading
+import hashlib
 
 import zerorpc
 from kazoo.client import KazooClient
@@ -8,7 +9,7 @@ from kazoo.exceptions import NoNodeError
 from zerorpc.exceptions import LostRemote
 
 TARGET_CHUNKS = 15
-MIN_CHUNK_SIZE = 591024
+MIN_CHUNK_SIZE = 1024000
 
 
 class ZClient:
@@ -61,7 +62,6 @@ class ZClient:
 
             start = time.time()
 
-            # TODO retry here
             try:
                 lock = self.zookeeper.Lock('files/' + filename)
                 lock.acquire(timeout=5)
@@ -69,13 +69,26 @@ class ZClient:
                 #chunkuuids = self.master.alloc(filename, num_chunks, chunksize, seq)
                 #self._write_chunks(chunkuuids, data, chunksize)
                 chunkuuids = self.master.alloc2(filename, num_chunks, chunksize, seq)
-                self._write_chunks2(chunkuuids, data, chunksize)
-
+                if not chunkuuids:
+                    print "No chunkservers online"
+                    return None
+                chunkmap = self._write_chunks(chunkuuids, data, chunksize)
+                print "Len chunkmap = ", len(chunkmap)
+                if chunkmap:
+                    "File transfer successful. Updating master"
+                    try:
+                        self.master.add_file(filename, chunkmap)
+                    except Exception as e:
+                        print "Error updating master: "
+                        print e.__doc__
+                        print e.message
                 end = time.time()
                 print "Total time writing was %0.2f" % ((end - start) * 1000)
-                lock.release()
+
             except LockTimeout:
                 return "File in use - try again later"
+            finally:
+                lock.release()
 
     def _exists(self, filename):
         return self.master.exists(filename)
@@ -89,48 +102,48 @@ class ZClient:
 
         # connect with each chunkserver. TODO Change to check/establish later
         chunkserver_clients = self._establish_connection()
-
-        # TODO get partial table
-        chunktable = self.master.get('chunktable')
-        # write to each chunkserver
-        for idx, chunkuuid in enumerate(chunkuuids):
-            chunkloc = chunktable[chunkuuid][0]
-            chunkserver_clients[chunkloc].write(chunkuuid, chunks[idx])
-
-    def _write_chunks2(self, chunkuuids, data, chunksize):
-        chunks = [data[x:x + chunksize] for x in range(0, len(data), chunksize)]
-
-        # connect with each chunkserver. TODO Change to check/establish later
-        chunkserver_clients = self._establish_connection()
-        print "connection established"
-        raw_input('wait')
+        # print "connection established"
+        # raw_input('wait')
         # chunkuuids is already a table
         # write to each chunkserver
 
         finished = False
         failed_chunkservers = []
+        chunkmap = {}  # dictionary of successful writes for updating master
         while not finished:
+            chunkmap.clear()
             for idx, chunkuuid in enumerate(chunkuuids):
-                chunklocs = [c_loc for c_loc in chunkuuids[chunkuuid] if c_loc not in failed_chunkservers]
-
+                chunklocs = [c_loc for c_loc in chunkuuids[chunkuuid]
+                             if c_loc not in failed_chunkservers]
                 if not chunklocs:
                     'No chunkservers to write to, write failed'
                     return False
                 else:
                     try:
-                        chunkloc = chunklocs[0]
-                        print 'Trying to write chunk# %d to cl %s' % (idx, chunkloc)
-                        chunkserver_clients[chunkloc].write(chunkuuid, chunks[idx])
+                        chunkloc = chunklocs[idx % len(chunklocs)]
+                        digest = hashlib.md5(chunks[idx]).digest()
+                        retdigest = chunkserver_clients[chunkloc].write(chunkuuid, chunks[idx])
+                        i = 3  # maximum amount of retries before we exit
+                        while digest != retdigest:
+                            if i == 0:
+                                print "Failed transferring chunk without errors"
+                                return False
+                            retdigest = chunkserver_clients[chunkloc].write(chunkuuid, chunks[idx])
+                            i -= 1
+                        chunkmap[chunkuuid] = chunkloc
+                        if idx == len(chunkuuids) - 1:
+                            finished = True
                     except LostRemote:
-                        print "Lost remote"
                         failed_chunkservers.append(chunkloc)
+                        finished = False
                         break
                     except Exception as e:
                         print 'Failed writing chunk %d to srv %s' % (idx, chunkloc)
                         print e.__doc__
                         print e.message
 
-            finished = True
+        return chunkmap
+
 
     # TODO add argument here so that we only establish necessary connections
     def _establish_connection(self):
@@ -184,9 +197,8 @@ class ZClient:
                 # chunks = []
                 jobs = []
                 chunkuuids = self.master.get_chunkuuids(filename)
-
-                # TODO get partial table
-                chunktable = self.master.get('chunktable')
+                print "How many chunks? = %d" % len(chunkuuids)
+                chunktable = self.master.get_file_chunks(filename)
                 chunks = [None] * len(chunkuuids)
                 chunkserver_clients = self._establish_connection()
                 for i, chunkuuid in enumerate(chunkuuids):
@@ -200,18 +212,22 @@ class ZClient:
                 for j in jobs:
                     j.join()
 
-                data = reduce(lambda x, y: x + y, chunks)  # reassemble in order
-                lock.release()
+                print "All threads done..."
+                data = ''.join(chunks)
+                print "Len data is %d" % len(data)
 
             except LockTimeout:
                 print "File in use - try again later"
                 return None
-            except:
+            except Exception as e:
                 print "Error reading file %s" % filename
+                print e.__doc__
+                print e.message
+                return None
+            finally:
                 lock.release()
-                raise
 
-            return data
+            return "Hi"
 
     def read_with_details(self, filename):  # get metadata, then read chunks direct
         """
@@ -235,8 +251,7 @@ class ZClient:
                 jobs = []
                 chunkuuids = self.master.get_chunkuuids(filename)
                 chunkdetails = []
-                # TODO get partial table
-                chunktable = self.master.get('chunktable')
+                chunktable = self.master.get_file_chunks(filename)
                 chunks = [None] * len(chunkuuids)
                 chunkserver_clients = self._establish_connection()
                 for i, chunkuuid in enumerate(chunkuuids):
@@ -255,8 +270,7 @@ class ZClient:
                 for j in jobs:
                     j.join()
 
-                data = reduce(lambda x, y: x + y, chunks)  # reassemble in order
-                lock.release()
+                data = ''.join(chunks)
 
                 print chunkdetails
 
@@ -266,6 +280,8 @@ class ZClient:
             except:
                 print "Error reading file %s" % filename
                 raise
+            finally:
+                lock.release()
 
             return data, chunkdetails
 
@@ -286,6 +302,7 @@ class ZClient:
         # update temp with chunk for edit details function if exists
         if temp:
             temp['chunk'] = chunk
+        print "Finished reading chunk %d " % i
 
     def dump_metadata(self):
         self.master.dump_metadata()
@@ -371,7 +388,7 @@ class ZClient:
 
         # olddata = reduce(lambda x, y: x + y, chunks)  # reassemble in order
         olddata, chunkdetails = self.read_with_details(filename)
-        print "\nCurrent data in " + filename + "\n" + olddata + "\nEdited data:\n" + newdata
+        # print "\nCurrent data in " + filename + "\n" + olddata + "\nEdited data:\n" + newdata
 
         # newchunks = []
         # chunksize = self.master.get('chunksize')
@@ -384,17 +401,17 @@ class ZClient:
             if newdata == olddata:
                 print "no change in contents"
             else:
-                print "same size but content changed"
+                # print "same size but content changed"
                 x = self.replacechunk(chunkdetails, olddata, newdata, chunksize)
         elif len_newdata < len_olddata:
             # print "deleted some contents"
             x = self.replacechunk(chunkdetails, olddata[0:len_newdata], newdata, chunksize)
-            print "call fn() to delete chunks " + olddata[len_newdata + 1:] + " from chunk server"
+            # print "call fn() to delete chunks " + olddata[len_newdata + 1:] + " from chunk server"
             x = self.deletechunk(filename, chunkdetails, len_newdata, len_olddata, chunksize)
         elif len_newdata > len_olddata:
             # print "added some contents"
             x = self.replacechunk(chunkdetails, olddata, newdata[0:len_olddata], chunksize)
-            print "call fn() to add chunks '" + newdata[len_olddata + 1:] + "' to chunk server"
+            # print "call fn() to add chunks '" + newdata[len_olddata + 1:] + "' to chunk server"
             self.append(filename, newdata[len_olddata:])
 
         self.master.updatevrsn(filename, 1)

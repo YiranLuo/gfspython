@@ -2,6 +2,7 @@ import os
 import subprocess
 import re
 import ast
+import hashlib
 
 import zerorpc
 from kazoo.client import KazooClient, KazooState
@@ -26,9 +27,9 @@ class ZChunkserver:
         except NoNodeError:
             print "No master record in zookeeper"
             raise  # TODO handle shadow master/waiting for master to reconnect later
-        except:
-            print "\n\tSome other error happened:"
-            raise
+        except Exception as e:
+            print "Unexpected error connecting to master:"
+            print e.__doc__, e.message
 
         # local directory where chunks are stored
         self.local_filesystem_root = "/tmp/gfs/chunks/" + repr(int(self.chunkloc))
@@ -69,6 +70,7 @@ class ZChunkserver:
         with open(local_filename, "wb") as f:
             f.write(chunk)
             self.chunktable[chunkuuid] = local_filename
+            return hashlib.md5(chunk).digest()
 
     def close(self):
         self.master.close()
