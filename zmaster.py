@@ -243,6 +243,7 @@ class ZMaster:
                        if chunkid in chunkuuids}
 
         return file_chunks
+
     ###############################################################################
 
     def updatevrsn(self, filename, flag):
@@ -303,7 +304,6 @@ class ZMaster:
                 print "No chunkservers online"
                 return None
 
-
             reps = min(3, no_servers)
             # self.chunktable={'test.txt$%#0$%#17229618-8c09-11e5-8017-000c29c12a87': [0], 'test.txt$%#1$%#17229619-8c09-11e5-8017-000c29c12a87': [1]}
 
@@ -351,7 +351,6 @@ class ZMaster:
             self._print_exception('acquiring lock in replicate', e)
         finally:
             self.lock.release()
-
 
     def delete(self, filename, chunkuuids):  # rename for later garbage collection
 

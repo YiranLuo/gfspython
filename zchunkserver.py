@@ -190,7 +190,7 @@ class ZChunkserver:
                     files[filename].append(items)
 
             print "files=%s, chunkloc=%s" % (files, self.chunkloc)
-            #self.master.populate(files, str(self.chunkloc))
+            # self.master.populate(files, str(self.chunkloc))
             return files, self.chunkloc
         else:
             print "nothing to populate"

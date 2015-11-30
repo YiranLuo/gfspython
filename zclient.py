@@ -149,7 +149,6 @@ class ZClient:
 
         return chunklist
 
-
     # TODO add argument here so that we only establish necessary connections
     def _establish_connection(self):
         """
