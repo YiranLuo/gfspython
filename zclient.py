@@ -79,7 +79,8 @@ class ZClient:
                     "Failed to write file"
                     return None
                 end = time.time()
-                print "Total time writing was %0.2f" % ((end - start) * 1000)
+                print "Total time writing was %0.2f ms" % ((end - start) * 1000)
+                print "Transfer rate: %0.f MB/s" % (len(data) / 1024 ** 2 / (end - start))
 
             except LockTimeout:
                 return "File in use - try again later"
@@ -195,6 +196,8 @@ class ZClient:
             print self.master.get_chunkuuids(filename)
         else:
             try:
+                start = time.time()
+
                 lock = self.zookeeper.Lock('files/' + filename)
                 lock.acquire(timeout=5)
 
@@ -217,6 +220,9 @@ class ZClient:
                     j.join()
 
                 data = ''.join(chunks)
+                end = time.time()
+                print "Total time reading was %0.2f ms" % ((end - start) * 1000)
+                print "Transfer rate: %0.f MB/s" % (len(data) / 1024 ** 2 / (end - start))
 
             except LockTimeout:
                 print "File in use - try again later"

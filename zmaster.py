@@ -323,8 +323,6 @@ class ZMaster:
 
                     # print "call connection to "+str(chunkloc)+" pass ",chunkid,temp
                     if chunkloc not in chunkserver:
-                        print "Chunkloc not in chunkserver.. chunkloc = %s, chunkserver = %s" % (
-                            chunkloc, chunkserver)
                         try:
                             chunkserver[chunkloc] = self._establish_connection(chunkloc)
                         except Exception as e:
