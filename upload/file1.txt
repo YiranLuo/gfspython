@@ -1,0 +1,8 @@
+How do I generate random numbers in Python?
+
+The standard random module implements a random number generator. Usage is simple:
+
+import random
+print random.random()
+
+This prints a random floating point number in the range [0, 1) (that is, between 0 and 1, including 0.0 but always smaller than 1.0).
