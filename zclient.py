@@ -1,11 +1,11 @@
-import time
-import threading
 import hashlib
+import threading
+import time
 
 import zerorpc
 from kazoo.client import KazooClient
-from kazoo.recipe.lock import LockTimeout
 from kazoo.exceptions import NoNodeError
+from kazoo.recipe.lock import LockTimeout
 from zerorpc.exceptions import LostRemote
 
 TARGET_CHUNKS = 15
@@ -150,7 +150,7 @@ class ZClient:
         return chunklist
 
     # TODO add argument here so that we only establish necessary connections
-    def _establish_connection(self):
+    def _establish_connection(self, targets=None):
         """
         Creates zerorpc client for each chunkserver
         :return:  Dictionary of zerorpc clients bound to chunkservers
@@ -165,9 +165,8 @@ class ZClient:
                 zclient.connect(chunkserver_ip)
                 zclient.print_name()
                 chunkserver_clients[chunkserver_num] = zclient
-            except LostRemote:
-                print "Lost it in established connection, passing up"
-                raise
+            except LostRemote as e:
+                self.master._print_exception('Lost remote in client', e)
 
         return chunkserver_clients
 
@@ -189,7 +188,7 @@ class ZClient:
         """
 
         if not self._exists(filename):
-            raise Exception("read error, file does not exist: " + filename)
+            print "Read error - file does not exist"
 
         if filename == "#garbage_collection#":
             print self.master.get_chunkuuids(filename)
@@ -205,8 +204,10 @@ class ZClient:
                 chunkuuids = self.master.get_chunkuuids(filename)
                 # print "How many chunks? = %d" % len(chunkuuids)
                 chunktable = self.master.get_file_chunks(filename)
+                chunkserver_nums = set(num for numlist in chunktable.values() for num in numlist)
+                # result = set(x for l in v for x in l)
                 chunks = [None] * len(chunkuuids)
-                chunkserver_clients = self._establish_connection()
+                chunkserver_clients = self._establish_connection2(chunkserver_nums)
                 for i, chunkuuid in enumerate(chunkuuids):
                     chunkloc = chunktable[chunkuuid][0]  # FIX ME LATER
                     thread = threading.Thread(
@@ -221,7 +222,7 @@ class ZClient:
                 data = ''.join(chunks)
                 end = time.time()
                 print "Total time reading was %0.2f ms" % ((end - start) * 1000)
-                print "Transfer rate: %0.f MB/s" % (len(data) / 1024 ** 2 / (end - start))
+                print "Transfer rate: %0.f MB/s" % (len(data) / 1024 ** 2. / (end - start))
 
             except LockTimeout:
                 print "File in use - try again later"

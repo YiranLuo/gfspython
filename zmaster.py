@@ -1,12 +1,12 @@
-import uuid
-import time
-import threading
 import ast
 import sys
+import threading
+import time
+import uuid
 
-from kazoo.client import KazooClient
 import zerorpc
 from apscheduler.schedulers.background import BackgroundScheduler
+from kazoo.client import KazooClient
 
 import zutils
 
@@ -89,11 +89,11 @@ class ZMaster:
                         print "Calling replicate directly"
                         self.replicate()
                     except Exception as e:
-                        self._print_exception('Removing chunkserver', e)
+                        self.print_exception('Removing chunkserver', e)
                     finally:
                         self.lock.release()
         except Exception as e:
-            self._print_exception('connecting to zookeeper', e)
+            self.print_exception('connecting to zookeeper', e)
             print "Unable to connect to zookeeper - master shutting down"
             sys.exit(2)
 
@@ -136,7 +136,7 @@ class ZMaster:
                     print "Removing %s from %s " % (chunkserver_num, chunkid)
                     self.chunktable[chunkid].remove(chunkserver_num)
                     if not self.chunktable[chunkid]:
-                        print "List is empty now, deleting file %s " % filename
+                        self.print_exception("List is empty now, deleting file %s " % filename, None)
                         self.delete(filename, '')
                         break  # breaks inner for loop
 
@@ -145,9 +145,10 @@ class ZMaster:
                         # print "\t Chunkservers = ", self.chunkservers
 
     @staticmethod
-    def _print_exception(context, exception):
+    def print_exception(context, exception):
         print "Unexpected error in " + context
-        print exception.__doc__, exception.message
+        if exception:
+            print exception.__doc__, exception.message
 
     def get(self, ivar):
         """
@@ -158,8 +159,7 @@ class ZMaster:
         try:
             return self.__dict__[ivar]
         except KeyError:
-            print 'Key error'
-            raise
+            self.print_exception('key error in get', KeyError)
 
     def get_chunksize(self, filename):
         return self.chunksize[filename]
@@ -232,7 +232,7 @@ class ZMaster:
                 self.filetable[filename].append(chunkuuid)
                 self.chunktable[chunkuuid] = [chunkloc]
         except Exception as e:
-            self._print_exception('updating file', e)
+            self.print_exception('updating file', e)
         finally:
             self.lock.release()
 
@@ -326,7 +326,7 @@ class ZMaster:
                         try:
                             chunkserver[chunkloc] = self._establish_connection(chunkloc)
                         except Exception as e:
-                            self._print_exception('in replicate', e)
+                            self.print_exception('in replicate', e)
 
                     if chunkserver[chunkloc].copy_chunk(chunkid, temp):
                         print "Update chunktable"
@@ -348,7 +348,7 @@ class ZMaster:
                 # print "replica: ", replicas
                 print "replicated %d items " % len(replicas.keys())
         except Exception as e:
-            self._print_exception('acquiring lock in replicate', e)
+            self.print_exception('acquiring lock in replicate', e)
         finally:
             self.lock.release()
 
@@ -396,7 +396,7 @@ class ZMaster:
             self.filetable[filename] = [x for x in chunkuuids if x not in chunk_rm_ids]
             self.delete(filename, chunk_rm_ids)
         except Exception as e:
-            self._print_exception('delete_chunks', e)
+            self.print_exception('delete_chunks', e)
         finally:
             self.lock.release()
 
@@ -488,7 +488,7 @@ class ZMaster:
             else:
                 print "Some error occurred while renaming"
         except Exception as e:
-            self._print_exception('rename', e)
+            self.print_exception('rename', e)
         finally:
             self.lock.release()
 
@@ -510,7 +510,7 @@ class ZMaster:
             for values in self.chunktable.itervalues():
                 values.remove(chunkloc)
         except Exception as e:
-            self._print_exception('rm from ctable', e)
+            self.print_exception('rm from ctable', e)
         finally:
             self.lock.release()
 
@@ -529,7 +529,7 @@ class ZMaster:
                 temp.append(temptable[key])
             self.filetable[filename] = temp
         except Exception as e:
-            self._print_exception('sort filetable', e)
+            self.print_exception('sort filetable', e)
         finally:
             self.lock.release()
 
@@ -561,6 +561,6 @@ class ZMaster:
                 # print self.filetable
                 # print self.chunktable
         except Exception as e:
-            self._print_exception('populate', e)
+            self.print_exception('populate', e)
         finally:
             self.lock.release()
