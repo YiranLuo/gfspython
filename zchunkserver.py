@@ -147,6 +147,7 @@ class ZChunkserver:
         for chunkloc in chunklocs:
             try:
                 chunkserver = self._establish_connection(chunkloc)
+                # TODO md5 check
                 data = chunkserver.read(chunkid)
                 flag = self.rwrite(chunkid, data)
                 if flag:

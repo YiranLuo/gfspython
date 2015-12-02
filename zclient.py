@@ -80,7 +80,7 @@ class ZClient:
                     return None
                 end = time.time()
                 print "Total time writing was %0.2f ms" % ((end - start) * 1000)
-                print "Transfer rate: %0.f MB/s" % (len(data) / 1024 ** 2 / (end - start))
+                print "Transfer rate: %0.f MB/s" % (len(data) / 1024 ** 2. / (end - start))
 
             except LockTimeout:
                 return "File in use - try again later"
@@ -114,6 +114,7 @@ class ZClient:
         # write to each chunkserver
 
         finished = False
+        call_replicate = False
         failed_chunkservers = []
         while not finished:
             chunklist = []  # list of successful writes for updating master
@@ -136,16 +137,23 @@ class ZClient:
                             retdigest = chunkserver_clients[chunkloc].write(chunkuuid, chunks[idx])
                             i -= 1
                         chunklist.append((chunkuuid, chunkloc))
+                        if len(chunklocs) > 1:
+                            chunkloc2 = chunklocs[(idx + 1) % len(chunklocs)]
+                            chunkserver_clients[chunkloc].copy_chunk(chunkuuid, str([chunkloc2]))
                         if idx == len(chunkuuids) - 1:
                             finished = True
                     except LostRemote:
                         failed_chunkservers.append(chunkloc)
                         finished = False
+                        call_replicate = True
                         break
                     except Exception as e:
                         print 'Failed writing chunk %d to srv %s' % (idx, chunkloc)
-                        print e.__doc__
-                        print e.message
+                        print e.__doc__, e.message
+                        raise
+
+        if call_replicate and finished:
+            self.master.replicate()
 
         return chunklist
 
@@ -196,8 +204,78 @@ class ZClient:
             try:
                 start = time.time()
 
-                lock = self.zookeeper.Lock('files/' + filename)
-                lock.acquire(timeout=5)
+                # lock = self.zookeeper.Lock('files/' + filename)
+                # lock.acquire(timeout=5)
+
+                chunkuuids = self.master.get_chunkuuids(filename)
+                # print "How many chunks? = %d" % len(chunkuuids)
+                chunktable = self.master.get_file_chunks(filename)
+                chunkserver_nums = set(num for numlist in chunktable.values() for num in numlist)
+                # result = set(x for l in v for x in l)
+                chunks = [None] * len(chunkuuids)
+                chunkserver_clients = self._establish_connection(chunkserver_nums)
+                for i, chunkuuid in enumerate(chunkuuids):
+                    chunkloc = chunktable[chunkuuid][0]  # FIX ME LATER
+                    self._read(chunkuuid, chunkserver_clients[chunkloc], chunks, i)
+
+                data = ''.join(chunks)
+                end = time.time()
+                print "Total time reading was %0.2f ms" % ((end - start) * 1000)
+                print "Transfer rate: %0.f MB/s" % (len(data) / 1024 ** 2. / (end - start))
+
+            except LockTimeout:
+                print "File in use - try again later"
+                return None
+            except Exception as e:
+                print "Error reading file %s" % filename
+                print e.__doc__
+                print e.message
+                return None
+            finally:
+                # lock.release()
+                pass
+
+            # # TODO temporary
+            # import os
+            # import webbrowser
+            # fdir = "/tmp/gfs/files/"
+            # if not os.access(fdir, os.W_OK):
+            #     os.makedirs(fdir)
+            # fn = os.path.abspath('/tmp/gfs/files/' + filename)
+            # f = open(fn, 'wb')
+            # f.write(data)
+            # os.fsync(f)  # ensure data is on disk
+            # f.close()
+            # webbrowser.open(fn)
+            # raw_input("Press any key to continue")
+            # try:
+            #     os.remove(fn)
+            # except Exception as e:
+            #     print "Error removing tmp file: ", e.__doc__
+            #     print e.message
+
+            return data
+            # return "opened in webbrowser - call read_with_details(filename)[0] for the data =P"
+
+    def read_parallel(self, filename):  # get metadata, then read chunks direct
+        """
+        Connects to each chunkserver and reads the chunks in order, then
+        assembles the file by reducing
+        :param filename:
+        :return:  file contents
+        """
+
+        if not self._exists(filename):
+            print "Read error - file does not exist"
+
+        if filename == "#garbage_collection#":
+            print self.master.get_chunkuuids(filename)
+        else:
+            try:
+                start = time.time()
+
+                # lock = self.zookeeper.Lock('files/' + filename)
+                # lock.acquire(timeout=5)
 
                 # chunks = []
                 jobs = []
@@ -207,7 +285,7 @@ class ZClient:
                 chunkserver_nums = set(num for numlist in chunktable.values() for num in numlist)
                 # result = set(x for l in v for x in l)
                 chunks = [None] * len(chunkuuids)
-                chunkserver_clients = self._establish_connection2(chunkserver_nums)
+                chunkserver_clients = self._establish_connection(chunkserver_nums)
                 for i, chunkuuid in enumerate(chunkuuids):
                     chunkloc = chunktable[chunkuuid][0]  # FIX ME LATER
                     thread = threading.Thread(
@@ -233,29 +311,30 @@ class ZClient:
                 print e.message
                 return None
             finally:
-                lock.release()
+                # lock.release()
+                pass
 
-            # TODO temporary
-            import os
-            import webbrowser
-            fdir = "/tmp/gfs/files/"
-            if not os.access(fdir, os.W_OK):
-                os.makedirs(fdir)
-            fn = os.path.abspath('/tmp/gfs/files/' + filename)
-            f = open(fn, 'wb')
-            f.write(data)
-            os.fsync(f)  # ensure data is on disk
-            f.close()
-            webbrowser.open(fn)
-            raw_input("Press any key to continue")
-            try:
-                os.remove(fn)
-            except Exception as e:
-                print "Error removing tmp file: ", e.__doc__
-                print e.message
+            # # TODO temporary
+            # import os
+            # import webbrowser
+            # fdir = "/tmp/gfs/files/"
+            # if not os.access(fdir, os.W_OK):
+            #     os.makedirs(fdir)
+            # fn = os.path.abspath('/tmp/gfs/files/' + filename)
+            # f = open(fn, 'wb')
+            # f.write(data)
+            # os.fsync(f)  # ensure data is on disk
+            # f.close()
+            # webbrowser.open(fn)
+            # raw_input("Press any key to continue")
+            # try:
+            #     os.remove(fn)
+            # except Exception as e:
+            #     print "Error removing tmp file: ", e.__doc__
+            #     print e.message
 
-            # return data
-            return "opened in webbrowser - call read_with_details(filename)[0] for the data =P"
+            return data
+            #return "opened in webbrowser - call read_with_details(filename)[0] for the data =P"
 
     def read_with_details(self, filename):  # get metadata, then read chunks direct
         """
@@ -325,6 +404,7 @@ class ZClient:
         :param i: current index we are working on
         :return: Calling threads in this fashion cannot return values, so we pass in chunks
         """
+        # add md5 check
         chunk = chunkserver_client.read(chunkuuid)
         chunks[i] = chunk
         # update temp with chunk for edit details function if exists

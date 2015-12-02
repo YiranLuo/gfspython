@@ -1,4 +1,5 @@
 import ast
+import random
 import sys
 import threading
 import time
@@ -35,8 +36,8 @@ class ZMaster:
 
         # this schedules background tasks in separate thread
         scheduler = BackgroundScheduler()
-        scheduler.add_job(self.collect_garbage, 'interval', minutes=1)
-        scheduler.add_job(self.replicate, 'interval', minutes=1)
+        scheduler.add_job(self.collect_garbage, 'interval', minutes=10)
+        scheduler.add_job(self.replicate, 'interval', minutes=5)
         scheduler.start()
 
     def _register_with_zookeeper(self, master_port):
@@ -96,6 +97,9 @@ class ZMaster:
             self.print_exception('connecting to zookeeper', e)
             print "Unable to connect to zookeeper - master shutting down"
             sys.exit(2)
+
+    def set_chunk(self):
+        self.num_chunkservers = len(self.chunkservers)
 
     def _register_chunkserver(self, chunkserver_num, chunkserver_ip):
         """
@@ -401,8 +405,9 @@ class ZMaster:
             self.lock.release()
 
     def next_chunkloc(self, keys_list):
-        next_chunkloc = keys_list[self.chunkrobin]
-        self.chunkrobin = (self.chunkrobin + 1) % self.num_chunkservers
+        next_chunkloc = keys_list[random.randrange(len(keys_list))]
+        # next_chunkloc = keys_list[self.chunkrobin]
+        # self.chunkrobin = (self.chunkrobin + 1) % self.num_chunkservers
         return next_chunkloc
 
     def alloc2(self, filename, num_chunks, chunksize, seq):  # return ordered chunk map to server
