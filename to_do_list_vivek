@@ -1,0 +1,22 @@
+lines of code
+messaging layer, why we didnt need it 
+threads
+
+which has most amount functionality (light weight master)
+
+Attributes (filetable, chunktable, versiontable, )
+Threads that are running (replicate/garbage/has_children?)
+
+%disk usage and network load before wiriting
+
+did we fix (c1 down, c2 ,c3 delete file, c1 comes up and update master ?)
+
+how are we going with the edit? is it done ? gui
+
+what happens when someone writes when reading ?
+
+how does our parallel read/writes and threading work
+
+replicate/populate/garbage
+
+limitations ( siZe of file we cna read/write dependant on RAM)
