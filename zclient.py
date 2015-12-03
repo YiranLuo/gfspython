@@ -8,7 +8,7 @@ from kazoo.exceptions import NoNodeError
 from kazoo.recipe.lock import LockTimeout
 from zerorpc.exceptions import LostRemote
 
-TARGET_CHUNKS = 15
+TARGET_CHUNKS = 10
 MIN_CHUNK_SIZE = 1024
 
 
