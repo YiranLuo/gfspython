@@ -1,8 +1,8 @@
-import os
-import subprocess
-import re
 import ast
 import hashlib
+import os
+import re
+import subprocess
 
 import zerorpc
 from kazoo.client import KazooClient, KazooState
@@ -36,7 +36,6 @@ class ZChunkserver:
         if not os.access(self.local_filesystem_root, os.W_OK):
             os.makedirs(self.local_filesystem_root)
 
-        self.populate()
 
     def _register_with_zookeeper(self):
 
@@ -148,6 +147,7 @@ class ZChunkserver:
         for chunkloc in chunklocs:
             try:
                 chunkserver = self._establish_connection(chunkloc)
+                # TODO md5 check
                 data = chunkserver.read(chunkid)
                 flag = self.rwrite(chunkid, data)
                 if flag:
