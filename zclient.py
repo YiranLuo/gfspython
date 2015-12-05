@@ -1,6 +1,8 @@
-import hashlib
 import threading
 import time
+import xxhash
+import os
+import webbrowser
 
 import zerorpc
 from kazoo.client import KazooClient
@@ -127,19 +129,22 @@ class ZClient:
                 else:
                     try:
                         chunkloc = chunklocs[idx % len(chunklocs)]
-                        digest = hashlib.md5(chunks[idx]).digest()
-                        retdigest = chunkserver_clients[chunkloc].write(chunkuuid, chunks[idx])
+                        chunkloc2 = chunklocs[(idx + 1) % len(chunklocs)]
+                        digest = xxhash.xxh64(chunks[idx]).digest()
+                        retdigest = chunkserver_clients[chunkloc].write(chunkuuid, chunks[idx],
+                                                                        chunkloc2)
                         i = 3  # maximum amount of retries before we exit
                         while digest != retdigest:
                             if i == 0:
                                 print "Failed transferring chunk without errors"
                                 return False
-                            retdigest = chunkserver_clients[chunkloc].write(chunkuuid, chunks[idx])
+                            retdigest = chunkserver_clients[chunkloc].write(chunkuuid, chunks[idx],
+                                                                            chunkloc2)
                             i -= 1
                         chunklist.append((chunkuuid, chunkloc))
                         if len(chunklocs) > 1:
                             chunkloc2 = chunklocs[(idx + 1) % len(chunklocs)]
-                            chunkserver_clients[chunkloc].copy_chunk(chunkuuid, str([chunkloc2]))
+                            # chunkserver_clients[chunkloc].copy_chunk(chunkuuid, str([chunkloc2]))
                         if idx == len(chunkuuids) - 1:
                             finished = True
                     except LostRemote:
@@ -152,12 +157,12 @@ class ZClient:
                         print e.__doc__, e.message
                         raise
 
+        print call_replicate, finished
         if call_replicate and finished:
             self.master.replicate()
 
         return chunklist
 
-    # TODO add argument here so that we only establish necessary connections
     def _establish_connection(self, targets=None):
         """
         Creates zerorpc client for each chunkserver
@@ -174,7 +179,7 @@ class ZClient:
                 zclient.print_name()
                 chunkserver_clients[chunkserver_num] = zclient
             except LostRemote as e:
-                self.master._print_exception('Lost remote in client', e)
+                self.master.print_exception('Lost remote in client', e)
 
         return chunkserver_clients
 
@@ -186,7 +191,6 @@ class ZClient:
         else:
             print 'No files in the system.'
 
-    # TODO Only establish connection to necessary servers
     def read(self, filename):  # get metadata, then read chunks direct
         """
         Connects to each chunkserver and reads the chunks in order, then
@@ -216,7 +220,10 @@ class ZClient:
                 chunkserver_clients = self._establish_connection(chunkserver_nums)
                 for i, chunkuuid in enumerate(chunkuuids):
                     chunkloc = chunktable[chunkuuid][0]  # FIX ME LATER
-                    self._read(chunkuuid, chunkserver_clients[chunkloc], chunks, i)
+                    try:
+                        self._read(chunkuuid, chunkserver_clients[chunkloc], chunks, i)
+                    except LostRemote:
+                        raise
 
                 data = ''.join(chunks)
                 end = time.time()
@@ -235,27 +242,21 @@ class ZClient:
                 # lock.release()
                 pass
 
-            # # TODO temporary
-            # import os
-            # import webbrowser
-            # fdir = "/tmp/gfs/files/"
-            # if not os.access(fdir, os.W_OK):
-            #     os.makedirs(fdir)
-            # fn = os.path.abspath('/tmp/gfs/files/' + filename)
-            # f = open(fn, 'wb')
-            # f.write(data)
-            # os.fsync(f)  # ensure data is on disk
-            # f.close()
-            # webbrowser.open(fn)
-            # raw_input("Press any key to continue")
-            # try:
-            #     os.remove(fn)
-            # except Exception as e:
-            #     print "Error removing tmp file: ", e.__doc__
-            #     print e.message
+        return data
 
-            return data
-            # return "opened in webbrowser - call read_with_details(filename)[0] for the data =P"
+    def read_gui(self, filename):
+        data = self.read(filename)
+
+        fdir = "/tmp/gfs/files/"
+        if not os.access(fdir, os.W_OK):
+            os.makedirs(fdir)
+        fn = os.path.abspath('/tmp/gfs/files/' + filename)
+        f = open(fn, 'wb')
+        f.write(data)
+        f.flush()
+        os.fsync(f.fileno())  # ensure data is on disk, f.close() does not ensure fsync itself
+        f.close()
+        webbrowser.open(fn)
 
     def read_parallel(self, filename):  # get metadata, then read chunks direct
         """
@@ -334,7 +335,7 @@ class ZClient:
             #     print e.message
 
             return data
-            #return "opened in webbrowser - call read_with_details(filename)[0] for the data =P"
+            # return "opened in webbrowser - call read_with_details(filename)[0] for the data =P"
 
     def read_with_details(self, filename):  # get metadata, then read chunks direct
         """

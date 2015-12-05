@@ -1,8 +1,8 @@
 import ast
-import hashlib
 import os
 import re
 import subprocess
+import xxhash
 
 import zerorpc
 from kazoo.client import KazooClient, KazooState
@@ -36,7 +36,6 @@ class ZChunkserver:
         if not os.access(self.local_filesystem_root, os.W_OK):
             os.makedirs(self.local_filesystem_root)
 
-
     def _register_with_zookeeper(self):
 
         def my_listener(state):
@@ -64,12 +63,17 @@ class ZChunkserver:
         print 'I am chunkserver #' + str(int(self.chunkloc))
         self.master.answer_server(int(self.chunkloc))
 
-    def write(self, chunkuuid, chunk):
+    def write(self, chunkuuid, chunk, forward=None):
         local_filename = self.chunk_filename(chunkuuid)
         with open(local_filename, "wb") as f:
             f.write(chunk)
             self.chunktable[chunkuuid] = local_filename
-            return hashlib.md5(chunk).digest()
+
+        print "foward is ", forward
+        if forward:
+            print "Forwarding chunk to loc", forward
+            self.copy_chunk(chunkuuid, str([forward]))
+        return xxhash.xxh64(chunk).digest()
 
     def close(self):
         self.master.close()

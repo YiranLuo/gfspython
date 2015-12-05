@@ -152,7 +152,7 @@ class ZMaster:
     def print_exception(context, exception):
         print "Unexpected error in " + context
         if exception:
-            print exception.__doc__, exception.message
+            print type(exception).__name__, ': ', exception.args
 
     def get(self, ivar):
         """
@@ -274,6 +274,7 @@ class ZMaster:
             return zclient
             # chunkserver_client
 
+    # TODO delete /tmp/gfs/files/*
     def collect_garbage(self):
 
         try:
