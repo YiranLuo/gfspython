@@ -98,7 +98,16 @@ class ZClient:
             print "Error updating master: "
 
     def _exists(self, filename):
-        return self.master.exists(filename)
+
+        response = None
+        while response is None:
+            print "response = ", response
+            try:
+                response = self.master.exists(filename)
+            except:
+                pass
+
+        return response
 
     def _num_chunks(self, size, chunksize=None):
         if not chunksize:
@@ -220,6 +229,8 @@ class ZClient:
                 # result = set(x for l in v for x in l)
                 chunks = [None] * len(chunkuuids)
                 chunkserver_clients = self._establish_connection(chunkserver_nums)
+                jobs = []
+                failed_chunkservers = []
                 for i, chunkuuid in enumerate(chunkuuids):
                     chunkloc = chunktable[chunkuuid]
                     flag = False
@@ -237,6 +248,7 @@ class ZClient:
                             print 'Failed to connect to loc %d' % id
                             flag = False
                             id += 1
+
                             if id >= lenchunkloc:
                                 print 'Failed reading file %s' % filename
                                 return None
