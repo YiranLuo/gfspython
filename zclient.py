@@ -219,6 +219,7 @@ class ZClient:
                 chunkserver_nums = set(num for numlist in chunktable.values() for num in numlist)
                 # result = set(x for l in v for x in l)
                 chunks = [None] * len(chunkuuids)
+                jobs=[]
                 chunkserver_clients = self._establish_connection(chunkserver_nums)
                 for i, chunkuuid in enumerate(chunkuuids):
                     chunkloc = chunktable[chunkuuid]
@@ -476,26 +477,28 @@ class ZClient:
 
     def _edit_append(self, filename, data):
         """ Separate function, called if you already have a lock acquired for appending"""
+        print "in append"
         if not self._exists(filename):
             print "Can't append, file '%s' does not exist" % filename
-            return None
+            return False
         else:
             chunksize = self.master.get_chunksize(filename)
             last_chunk_id = self.master.get_last_chunkuuid(filename)
             num_chunks, _ = self._num_chunks(len(data), chunksize)
             seq = int(last_chunk_id.split('$%#')[1]) + 1
             append_chunkuuids = self.master.alloc2_chunks(num_chunks, filename, seq)
-            # print "append_chuids", append_chunkuuids
+            print "append_chuids", append_chunkuuids
             if not append_chunkuuids:
                 print "No chunkservers online"
-                return None
+                return False
             chunklist = self._write_chunks(append_chunkuuids, data, chunksize)
-            # print "chunklist = %s" % chunklist
+            print "chunklist = %s" % chunklist
             if chunklist:
                 self._update_master(filename, chunklist)
+                return True
             else:
                 "Failed to write file"
-                return None
+                return False
 
     def deletechunk(self, filename, chunkdetails, len_newdata, len_olddata, chunksize):
         x = y = 0
@@ -505,7 +508,7 @@ class ZClient:
                 chunkids.append(chunkuuid['chunkuid'])
             x += chunksize
         self.master.delete_chunks(filename, chunkids)
-        return 'True'
+        return True
 
     def replacechunk(self, chunkserver_clients, failed_chunkservers, chunkdetails, data1, data2, chunksize):
         x = y = 0
@@ -521,7 +524,7 @@ class ZClient:
 
 
             y += 1
-        return 'True'
+        return True
 
     # def append(self, filename, data):
     #     if not self._exists(filename):
@@ -591,17 +594,18 @@ class ZClient:
                     print "no change in contents"
                 else:
                     print "same size but content changed"
-                    x = self.replacechunk(chunkservers, failed_chunkservers, chunkdetails, olddata, newdata, chunksize)
+                    x1 = self.replacechunk(chunkservers, failed_chunkservers, chunkdetails, olddata, newdata, chunksize)
+                    x2=""
             elif len_newdata < len_olddata:
                 print "deleted some contents"
-                x = self.replacechunk(chunkservers, failed_chunkservers, chunkdetails, olddata[0:len_newdata], newdata, chunksize)
+                x1 = self.replacechunk(chunkservers, failed_chunkservers, chunkdetails, olddata[0:len_newdata], newdata, chunksize)
                 print "call fn() to delete chunks " + olddata[len_newdata + 1:] + " from chunk server"
-                x = self.deletechunk(filename, chunkdetails, len_newdata, len_olddata, chunksize)
+                x2 = self.deletechunk(filename, chunkdetails, len_newdata, len_olddata, chunksize)
             elif len_newdata > len_olddata:
                 print "added some contents"
                 x = self.replacechunk(chunkservers, failed_chunkservers, chunkdetails, olddata, newdata[0:len_olddata], chunksize)
                 print "call fn() to add chunks '" + newdata[len_olddata + 1:] + "' to chunk server"
-                self._edit_append(filename, newdata[len_olddata:])
+                x2 = self._edit_append(filename, newdata[len_olddata:])
 
             self.master.updatevrsn(filename, 1)
 
