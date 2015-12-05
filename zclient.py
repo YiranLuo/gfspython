@@ -221,11 +221,25 @@ class ZClient:
                 chunks = [None] * len(chunkuuids)
                 chunkserver_clients = self._establish_connection(chunkserver_nums)
                 for i, chunkuuid in enumerate(chunkuuids):
-                    chunkloc = chunktable[chunkuuid][0]  # FIX ME LATER
-                    try:
-                        self._read(chunkuuid, chunkserver_clients[chunkloc], chunks, i)
-                    except LostRemote:
-                        raise
+                    chunkloc = chunktable[chunkuuid]
+                    flag = False
+                    id = 0
+                    lenchunkloc = len(chunkloc)
+                    while flag is not True:
+                        try:
+                            thread = threading.Thread(
+                                target=self._read(chunkuuid, chunkserver_clients[chunkloc[id]],
+                                          chunks, i))
+                            jobs.append(thread)
+                            thread.start()
+                            flag = True
+                        except:
+                            print 'Failed to connect to loc %d' % id
+                            flag = False
+                            id += 1
+                            if id >= lenchunkloc:
+                                print 'Failed reading file %s' % filename
+                                return None
 
                 data = ''.join(chunks)
                 end = time.time()
@@ -389,6 +403,9 @@ class ZClient:
                             failed_chunkservers.append(chunkloc[id])
                             flag = False
                             id += 1
+                            if id >= lenchunkloc:
+                                print 'Error reading file %s' % filename
+                                return None
 
                 # block until all threads are done before reducing chunks
                 for j in jobs:
