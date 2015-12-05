@@ -1,8 +1,8 @@
+import os
 import threading
 import time
-import xxhash
-import os
 import webbrowser
+import xxhash
 
 import zerorpc
 from kazoo.client import KazooClient
@@ -109,6 +109,7 @@ class ZClient:
         chunks = [data[x:x + chunksize] for x in range(0, len(data), chunksize)]
 
         # connect with each chunkserver. TODO Change to check/establish later
+        #chunkserver_nums = set(num for numlist in chunkuuids.values() for num in numlist)
         chunkserver_clients = self._establish_connection()
         # print "connection established"
         # raw_input('wait')
@@ -130,6 +131,7 @@ class ZClient:
                     try:
                         chunkloc = chunklocs[idx % len(chunklocs)]
                         chunkloc2 = chunklocs[(idx + 1) % len(chunklocs)]
+                        print 'chunklocs = %s, chunkloc1 = %s, chunkloc2=%s' % (chunklocs, chunkloc, chunkloc2)
                         digest = xxhash.xxh64(chunks[idx]).digest()
                         retdigest = chunkserver_clients[chunkloc].write(chunkuuid, chunks[idx],
                                                                         chunkloc2)
@@ -179,7 +181,7 @@ class ZClient:
                 zclient.print_name()
                 chunkserver_clients[chunkserver_num] = zclient
             except LostRemote as e:
-                self.master.print_exception('Lost remote in client', e)
+                self.master.print_exception('Lost remote in client', None)
 
         return chunkserver_clients
 
@@ -391,7 +393,7 @@ class ZClient:
             finally:
                 lock.release()
 
-            return data, chunkdetails
+            return data, chunkdetails, chunkserver_clients
 
     @staticmethod
     def _read(chunkuuid, chunkserver_client, chunks, i, temp=None):
@@ -406,6 +408,7 @@ class ZClient:
         :return: Calling threads in this fashion cannot return values, so we pass in chunks
         """
         # add md5 check
+
         chunk = chunkserver_client.read(chunkuuid)
         chunks[i] = chunk
         # update temp with chunk for edit details function if exists
@@ -463,10 +466,10 @@ class ZClient:
                 "Failed to write file"
                 return None
 
-    def deletechunk(self, filename, chunkdetails, len_newdata, len_olddata, chunksize):
+    def deletechunk(self, chunkserver_clients, filename, chunkdetails, len_newdata, len_olddata, chunksize):
         x = y = 0
         chunkids = []
-        chunkserver_clients = self._establish_connection()  # can reuse the connection thats already established
+        # chunkserver_clients = self._establish_connection()  # can reuse the connection thats already established
         for chunkuuid in chunkdetails:
             if x > len_newdata:
                 chunkids.append(chunkuuid['chunkuid'])
@@ -475,9 +478,9 @@ class ZClient:
         self.master.delete_chunks(filename, chunkids)
         return 'True'
 
-    def replacechunk(self, chunkdetails, data1, data2, chunksize):
+    def replacechunk(self, chunkserver_clients, chunkdetails, data1, data2, chunksize):
         x = y = 0
-        chunkserver_clients = self._establish_connection()  # can be avoided, pass from the edit function
+        # chunkserver_clients = self._establish_connection()  # can be avoided, pass from the edit function
         for x in range(0, len(data1), chunksize):
             if data1[x:x + chunksize] != data2[x:x + chunksize] or len(
                     data2[x:x + chunksize]) < chunksize:
@@ -486,6 +489,7 @@ class ZClient:
                 for i in chunkdetails[y]['chunkloc']:
                     chunkserver_clients[i].write(chunkdetails[y]['chunkuid'],
                                                  data2[x:x + chunksize])
+
 
             y += 1
         return 'True'
@@ -517,7 +521,7 @@ class ZClient:
 
         # TODO possibly change, read acquires full lock so this can't happen after asking lock below
         # kazoo lock is not reentrant, so it will block forever if the same thread acquires twice
-        olddata, chunkdetails = self.read_with_details(filename)
+        olddata, chunkdetails, chunkservers = self.read_with_details(filename)
 
         if not olddata:
             return False  # exit if unable to read details
@@ -558,27 +562,32 @@ class ZClient:
                     print "no change in contents"
                 else:
                     # print "same size but content changed"
-                    x = self.replacechunk(chunkdetails, olddata, newdata, chunksize)
+                    x = self.replacechunk(chunkservers, chunkdetails, olddata, newdata, chunksize)
             elif len_newdata < len_olddata:
                 # print "deleted some contents"
-                x = self.replacechunk(chunkdetails, olddata[0:len_newdata], newdata, chunksize)
+                x = self.replacechunk(chunkservers, chunkdetails, olddata[0:len_newdata], newdata, chunksize)
                 # print "call fn() to delete chunks " + olddata[len_newdata + 1:] + " from chunk server"
-                x = self.deletechunk(filename, chunkdetails, len_newdata, len_olddata, chunksize)
+                x = self.deletechunk(chunkservers, filename, chunkdetails, len_newdata, len_olddata, chunksize)
             elif len_newdata > len_olddata:
                 # print "added some contents"
-                x = self.replacechunk(chunkdetails, olddata, newdata[0:len_olddata], chunksize)
+                x = self.replacechunk(chunkservers, chunkdetails, olddata, newdata[0:len_olddata], chunksize)
                 # print "call fn() to add chunks '" + newdata[len_olddata + 1:] + "' to chunk server"
                 self._edit_append(filename, newdata[len_olddata:])
 
             self.master.updatevrsn(filename, 1)
+
+            try:
+                for chunkserver in chunkservers:
+                    chunkserver.close()
+            except:
+                pass
 
         except LockTimeout:
             print "File in use - try again later"
             return None
         except Exception as e:
             print "Error editing file %s - try again later" % filename
-            print e.__doc__
-            print e.message
+            print type(e).__name__, e.args
         finally:
             lock.release()
 

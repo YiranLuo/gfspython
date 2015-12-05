@@ -69,10 +69,10 @@ class ZChunkserver:
             f.write(chunk)
             self.chunktable[chunkuuid] = local_filename
 
-        print "foward is ", forward
+        print "forward is ", forward
         if forward:
             print "Forwarding chunk to loc", forward
-            self.copy_chunk(chunkuuid, str([forward]))
+            self.send_chunk(chunkuuid, str([forward]), chunk)
         return xxhash.xxh64(chunk).digest()
 
     def close(self):
@@ -159,6 +159,21 @@ class ZChunkserver:
             except:
                 flag = False
                 print "soe"
+
+        return flag
+
+    def send_chunk(self, chunkid, chunklocs, data):
+        chunklocs = ast.literal_eval(chunklocs)
+        flag = False
+        for chunkloc in chunklocs:
+            try:
+                chunkserver = self._establish_connection(chunkloc)
+                flag = chunkserver.rwrite(chunkid, data)
+                if flag:
+                    break
+            except Exception as e:
+                flag = False
+                self.master.print_exception('sending chunk', e)
 
         return flag
 

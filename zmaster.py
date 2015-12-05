@@ -405,11 +405,9 @@ class ZMaster:
         finally:
             self.lock.release()
 
-    def next_chunkloc(self, keys_list):
-        next_chunkloc = keys_list[random.randrange(len(keys_list))]
-        # next_chunkloc = keys_list[self.chunkrobin]
-        # self.chunkrobin = (self.chunkrobin + 1) % self.num_chunkservers
-        return next_chunkloc
+    def next_chunkloc(self, keys_list, num_items):
+        next_chunklocs = random.sample(keys_list, num_items)
+        return next_chunklocs
 
     def alloc2(self, filename, num_chunks, chunksize, seq):  # return ordered chunk map to server
         chunks = self.alloc2_chunks(num_chunks, filename, seq)
@@ -429,15 +427,13 @@ class ZMaster:
         for i in range(0, num_chunks):
             chunkuuid = filename + "$%#" + str(tseq) + "$%#" + str(uuid.uuid1())
 
-            if self.num_chunkservers > 1:
-                # chunkuuids[chunkuuid] = [self.next_chunkloc(keys_list),
-                #                         self.next_chunkloc(keys_list)]
-                chunkuuids.append((chunkuuid,
-                                   [self.next_chunkloc(keys_list), self.next_chunkloc(keys_list)]))
+            if len(keys_list) < 3:
+                num_chunklocs = len(keys_list)
             else:
-                # chunkuuids[chunkuuid] = [self.next_chunkloc(keys_list)]
-                chunkuuids.append((chunkuuid,
-                                   [self.next_chunkloc(keys_list)]))
+                num_chunklocs = 3
+
+            next_chunklocs = self.next_chunkloc(keys_list, num_chunklocs)
+            chunkuuids.append((chunkuuid, next_chunklocs))
             tseq += 1
 
         return chunkuuids
