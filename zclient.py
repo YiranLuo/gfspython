@@ -339,11 +339,12 @@ class ZClient:
             return data
             # return "opened in webbrowser - call read_with_details(filename)[0] for the data =P"
 
-    def read_with_details(self, filename):  # get metadata, then read chunks direct
+    def read_with_details(self, filename, failed_chunkservers):  # get metadata, then read chunks direct
         """
         Connects to each chunkserver and reads the chunks in order, then
         assembles the file by reducing.  Returns details for editing
         :param filename:
+        :param failed_chunkservers
         :return:  details, file contents
         """
 
@@ -365,16 +366,29 @@ class ZClient:
                 chunks = [None] * len(chunkuuids)
                 chunkserver_clients = self._establish_connection()
                 for i, chunkuuid in enumerate(chunkuuids):
+                    print 'i=',i
                     chunkloc = chunktable[chunkuuid]  # TODO FIX ME LATER, reads from [0] below
                     temp = {'chunkloc': chunkloc,
                             'chunkuid': chunkuuid}
                     chunkdetails.append(temp)
 
-                    thread = threading.Thread(
-                        target=self._read(chunkuuid, chunkserver_clients[chunkloc[0]],
+                    flag = False
+                    id=0
+                    lenchunkloc=len(chunkloc)
+                    while flag is not True and id <= lenchunkloc:
+                        print 'id=',id
+                        try:
+                            thread = threading.Thread(
+                                target=self._read(chunkuuid, chunkserver_clients[chunkloc[id]],
                                           chunks, i, temp))
-                    jobs.append(thread)
-                    thread.start()
+                            jobs.append(thread)
+                            thread.start()
+                            flag = True
+                        except:
+                            print 'Failed to connect to loc %d' % id
+                            failed_chunkservers.append(chunkloc[id])
+                            flag = False
+                            id += 1
 
                 # block until all threads are done before reducing chunks
                 for j in jobs:
@@ -393,7 +407,7 @@ class ZClient:
             finally:
                 lock.release()
 
-            return data, chunkdetails, chunkserver_clients
+            return data, chunkdetails, chunkserver_clients, failed_chunkservers
 
     @staticmethod
     def _read(chunkuuid, chunkserver_client, chunks, i, temp=None):
@@ -466,19 +480,17 @@ class ZClient:
                 "Failed to write file"
                 return None
 
-    def deletechunk(self, chunkserver_clients, filename, chunkdetails, len_newdata, len_olddata, chunksize):
+    def deletechunk(self, filename, chunkdetails, len_newdata, len_olddata, chunksize):
         x = y = 0
         chunkids = []
-        # chunkserver_clients = self._establish_connection()  # can reuse the connection thats already established
         for chunkuuid in chunkdetails:
             if x > len_newdata:
                 chunkids.append(chunkuuid['chunkuid'])
             x += chunksize
-        # print "@ client",filename,chunkids
         self.master.delete_chunks(filename, chunkids)
         return 'True'
 
-    def replacechunk(self, chunkserver_clients, chunkdetails, data1, data2, chunksize):
+    def replacechunk(self, chunkserver_clients, failed_chunkservers, chunkdetails, data1, data2, chunksize):
         x = y = 0
         # chunkserver_clients = self._establish_connection()  # can be avoided, pass from the edit function
         for x in range(0, len(data1), chunksize):
@@ -521,7 +533,7 @@ class ZClient:
 
         # TODO possibly change, read acquires full lock so this can't happen after asking lock below
         # kazoo lock is not reentrant, so it will block forever if the same thread acquires twice
-        olddata, chunkdetails, chunkservers = self.read_with_details(filename)
+        olddata, chunkdetails, chunkservers, failed_chunkservers = self.read_with_details(filename, [])
 
         if not olddata:
             return False  # exit if unable to read details
@@ -561,17 +573,17 @@ class ZClient:
                 if newdata == olddata:
                     print "no change in contents"
                 else:
-                    # print "same size but content changed"
-                    x = self.replacechunk(chunkservers, chunkdetails, olddata, newdata, chunksize)
+                    print "same size but content changed"
+                    x = self.replacechunk(chunkservers, failed_chunkservers, chunkdetails, olddata, newdata, chunksize)
             elif len_newdata < len_olddata:
-                # print "deleted some contents"
-                x = self.replacechunk(chunkservers, chunkdetails, olddata[0:len_newdata], newdata, chunksize)
-                # print "call fn() to delete chunks " + olddata[len_newdata + 1:] + " from chunk server"
-                x = self.deletechunk(chunkservers, filename, chunkdetails, len_newdata, len_olddata, chunksize)
+                print "deleted some contents"
+                x = self.replacechunk(chunkservers, failed_chunkservers, chunkdetails, olddata[0:len_newdata], newdata, chunksize)
+                print "call fn() to delete chunks " + olddata[len_newdata + 1:] + " from chunk server"
+                x = self.deletechunk(filename, chunkdetails, len_newdata, len_olddata, chunksize)
             elif len_newdata > len_olddata:
-                # print "added some contents"
-                x = self.replacechunk(chunkservers, chunkdetails, olddata, newdata[0:len_olddata], chunksize)
-                # print "call fn() to add chunks '" + newdata[len_olddata + 1:] + "' to chunk server"
+                print "added some contents"
+                x = self.replacechunk(chunkservers, failed_chunkservers, chunkdetails, olddata, newdata[0:len_olddata], chunksize)
+                print "call fn() to add chunks '" + newdata[len_olddata + 1:] + "' to chunk server"
                 self._edit_append(filename, newdata[len_olddata:])
 
             self.master.updatevrsn(filename, 1)
