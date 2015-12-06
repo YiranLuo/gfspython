@@ -24,7 +24,7 @@ class ZMaster:
         # self.chunksize = 10
         self.chunkrobin = 0
         self.versntable = {}  # file version counter
-        self.filetable = {}  # file to chunk mapping
+        self.filetable = {'#garbage_collection#':{'0000000024': ['abc$%#0$%#27a04c46-9c4f-11e5-92b7-000c29c12a87']}}  # file to chunk mapping
         self.chunktable = {}  # chunkuuid to chunkloc mapping
         self.chunkservers = {}  # loc id to chunkserver mapping
 	self.no_replica=3
@@ -267,34 +267,55 @@ class ZMaster:
         chunkservers = self.get('chunkservers')
 
         if True:
+	  try:
             zclient = zerorpc.Client()
             print 'Server connecting to chunkserver at %s' % chunkservers[chunkloc]
             zclient.connect(chunkservers[chunkloc])
             zclient.print_name()
-            # chunkserver_client[chunkloc] = zclient
             return zclient
-            # chunkserver_client
+	  except:
+	    return False
 
     # TODO delete /tmp/gfs/files/*
     def collect_garbage(self):
 
         try:
             chunklocs = self.filetable["#garbage_collection#"]
+            print chunklocs, chunklocs.keys(), self.chunkservers.keys()
+	    failedservers=list(set(chunklocs.keys())-set(self.chunkservers.keys()))
+	    legitservers=list(set(chunklocs.keys())-set(failedservers))
+	    print "legit,failed ",legitservers, failedservers
         except:
-            self.filetable["#garbage_collection#"] = {}
             chunklocs = {}
 
         if chunklocs:
             print "in garbage"
             for chunkloc in chunklocs.keys():
-                # connect with each chunkserver. Change to check/establish later
-                chunkserver_clients = self._establish_connection(chunkloc)
+              # connect with each chunkserver if its not a failed server 
+	      if chunkloc not in failedservers:
+                 chunkserver_clients = self._establish_connection(chunkloc)
 
-                # print "call delchunkfile fn() in chunkserver-"+str(chunkloc)
-                flag = chunkserver_clients.delete(chunklocs[chunkloc])
-                if flag:
-                    # print "remove value from garbage collection for "+str(chunkloc)
-                    del self.filetable["#garbage_collection#"][chunkloc]
+	         if chunkserver_clients!= False:
+                   # print "call delchunkfile fn() in chunkserver-"+str(chunkloc)
+                   flag = chunkserver_clients.delete(list(set(chunklocs[chunkloc])))
+                   if flag:
+		      #remove chunkid if present in failedservers
+		      for chunkid in list(set(chunklocs[chunkloc])):
+		        i=0
+			while i<len(failedservers):
+			  if chunkid in chunklocs[failedservers[i]]:
+			     chunklocs[failedservers[i]].remove(chunkid)
+			     if chunklocs[failedservers[i]]==[]:
+				del self.filetable["#garbage_collection#"][failedservers[i]]
+				failedservers.remove(failedservers[i])
+			     break
+			  i+=1
+
+                      # print "remove value from garbage collection for "+str(chunkloc)
+                      del self.filetable["#garbage_collection#"][chunkloc]
+		      
+	         else:
+		   print "Failed to connect to ",chunkloc
         else:
             print "nothing to clear in garbage"
 
@@ -544,18 +565,19 @@ class ZMaster:
                 if self.exists(filename):
                     print "operations for merging"
                     for chunkid in chunkids:
-			#also check if data is the same
-                        if chunkid not in self.filetable[filename]:
+                        if chunkid not in self.filetable[filename] and chunkid not in [list(x)[0] for x in set(tuple(x) for x in self.filetable['#garbage_collection#'].values())]:
+			  if True:#condition to check if hash for chunkids are the same
                             self.filetable[filename].append(chunkid)
                             self.chunktable[chunkid] = [chunkloc]
                         else:
-			    if len(self.chunktable[chunkid]) < self.no_replica:
+			    if len(self.chunktable[chunkid]) < self.no_replica: #also check if data is the same
                                self.chunktable[chunkid].append(chunkloc)
 			    else:
 			       try:
 				  self.filetable['#garbage_collection#'][chunkloc].append(chunkid)
 			       except:
-				  self.filetable['#garbage_collection#']={chunkloc:[chunkid]}
+				
+				  self.filetable['#garbage_collection#'][chunkloc]=[chunkid]
                 else:
 		  orig_chunkids=chunkids[:]
 		  chunkids=list(set(chunkids)-set([list(x)[0] for x in set(tuple(x) for x in self.filetable['#garbage_collection#'].values())]))
@@ -576,9 +598,10 @@ class ZMaster:
 		    try:
                        self.filetable['#garbage_collection#'][chunkloc].append(chunkid)
                     except:
-                       self.filetable['#garbage_collection#']={chunkloc:[chunkid]}
+		       self.filetable['#garbage_collection#'][chunkloc]=[chunkid]
 
-                self.sort_filetable(filename)
+		if self.exists(filename):
+                   self.sort_filetable(filename)
 
                 # print self.filetable
                 # print self.chunktable
