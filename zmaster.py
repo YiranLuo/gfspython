@@ -27,6 +27,7 @@ class ZMaster:
         self.filetable = {}  # file to chunk mapping
         self.chunktable = {}  # chunkuuid to chunkloc mapping
         self.chunkservers = {}  # loc id to chunkserver mapping
+	self.no_replica=3
         # self.init_chunkservers()
         self.chunkclients = {}  # zerorpc clients connected to chunkservers
         self.chunkstats = {}  # stats for capacity and network load
@@ -302,15 +303,14 @@ class ZMaster:
         self.lock.acquire()
         try:
             replicas = {}
-            no_servers = self.num_chunkservers
+            no_servers = len(self.chunkservers)
 
             # skip checking for copies if we have 0 chunkservers
             if no_servers == 0:
                 print "No chunkservers online"
                 return None
 
-            reps = min(3, no_servers)
-            # self.chunktable={'test.txt$%#0$%#17229618-8c09-11e5-8017-000c29c12a87': [0], 'test.txt$%#1$%#17229619-8c09-11e5-8017-000c29c12a87': [1]}
+            reps = min(self.no_replica, no_servers)
 
             chunktable = self.chunktable
             chunkserver = {}
@@ -539,17 +539,28 @@ class ZMaster:
 
         self.lock.acquire()
         try:
-            # print files, chunkloc, "in master"
+            #print files, chunkloc, "in master"
             for filename, chunkids in files.items():
                 if self.exists(filename):
                     print "operations for merging"
                     for chunkid in chunkids:
+			#also check if data is the same
                         if chunkid not in self.filetable[filename]:
                             self.filetable[filename].append(chunkid)
                             self.chunktable[chunkid] = [chunkloc]
                         else:
-                            self.chunktable[chunkid].append(chunkloc)
+			    if len(self.chunktable[chunkid]) < self.no_replica:
+                               self.chunktable[chunkid].append(chunkloc)
+			    else:
+			       try:
+				  self.filetable['#garbage_collection#'][chunkloc].append(chunkid)
+			       except:
+				  self.filetable['#garbage_collection#']={chunkloc:[chunkid]}
                 else:
+		  orig_chunkids=chunkids[:]
+		  chunkids=list(set(chunkids)-set([list(x)[0] for x in set(tuple(x) for x in self.filetable['#garbage_collection#'].values())]))
+		  print "chunkids",chunkids
+		  if chunkids!=[]:
                     print "operation for adding", filename
                     self.filetable[filename] = chunkids
                     temp = {}
@@ -558,6 +569,15 @@ class ZMaster:
                     self.chunktable.update(temp)
                     self.versntable[filename] = 1
                     # update chunksize table
+		  else:
+                    print "operation for deleting", list(set(orig_chunkids) - set(chunkids))
+
+		  for chunkid in list(set(orig_chunkids) - set(chunkids)):
+		    try:
+                       self.filetable['#garbage_collection#'][chunkloc].append(chunkid)
+                    except:
+                       self.filetable['#garbage_collection#']={chunkloc:[chunkid]}
+
                 self.sort_filetable(filename)
 
                 # print self.filetable

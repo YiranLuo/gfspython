@@ -220,16 +220,16 @@ class ZClient:
                 # result = set(x for l in v for x in l)
                 chunks = [None] * len(chunkuuids)
                 chunkserver_clients = self._establish_connection(chunkserver_nums)
+		print chunkserver_clients
                 for i, chunkuuid in enumerate(chunkuuids):
                     chunkloc = chunktable[chunkuuid]
+		    print chunkloc
                     flag = False
                     id = 0
                     lenchunkloc = len(chunkloc)
                     while flag is not True:
                         try:
-                            thread = threading.Thread(
-                                target=self._read(chunkuuid, chunkserver_clients[chunkloc[id]],
-                                          chunks, i))
+                            thread = threading.Thread(target=self._read(chunkuuid, chunkserver_clients[chunkloc[id]], chunks, i))
                             jobs.append(thread)
                             thread.start()
                             flag = True
@@ -379,8 +379,8 @@ class ZClient:
                 chunktable = self.master.get_file_chunks(filename)
                 chunks = [None] * len(chunkuuids)
                 chunkserver_clients = self._establish_connection()
+		raw_input('Enter')
                 for i, chunkuuid in enumerate(chunkuuids):
-                    print 'i=',i
                     chunkloc = chunktable[chunkuuid]  # TODO FIX ME LATER, reads from [0] below
                     temp = {'chunkloc': chunkloc,
                             'chunkuid': chunkuuid}
@@ -515,10 +515,13 @@ class ZClient:
                     data2[x:x + chunksize]) < chunksize:
                 print "replace '" + data1[x:x + chunksize] + "' with '" + data2[
                                                                           x:x + chunksize] + "'"
-                for i in chunkdetails[y]['chunkloc']:
+                validservers=list(set(chunkdetails[y]['chunkloc'])-set(failed_chunkservers))
+		for i in validservers:
+		  try:
                     chunkserver_clients[i].write(chunkdetails[y]['chunkuid'],
                                                  data2[x:x + chunksize])
-
+		  except:
+		    pass
 
             y += 1
         return 'True'
@@ -550,6 +553,7 @@ class ZClient:
 
         # TODO possibly change, read acquires full lock so this can't happen after asking lock below
         # kazoo lock is not reentrant, so it will block forever if the same thread acquires twice
+	failed_chunkservers=[]
         olddata, chunkdetails, chunkservers, failed_chunkservers = self.read_with_details(filename, [])
 
         if not olddata:
