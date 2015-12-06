@@ -1,0 +1,50 @@
+import zclient
+reload(zclient)
+client=zclient.ZClient()
+client.write("test.txt","this is a sample text input file")
+client.read("test.txt")
+client.rename("test.txt","tester.txt")
+
+
+
+
+pycharm
+------------
+~/opt/pycharm/bin/pycharm.sh
+
+
+#changed
+
+replacechunk
+--------------
+#even if one fails , its okay. the rest of the chunks would be replace. when the failed chunkserver
+#comes up with the failed replace data, it would be caught by master at populate
+#same filename, same chunkid, but different hash, hencecan be assumed to get deleted
+
+read_detail
+------------
+we did that yesterday in th elab but check if i made any additional changes. I presume not but still
+
+
+in Replicate
+------------------
+assigned the no.replicas as variable of the class.
+self.no_replica
+changed the no_servers to get value from len(chunkserver) rather than self.num_chunkservers
+
+
+populate 
+----------
+delete excess file if chunkserver comes up and has chunks but no. of replicas for that chunk already =3
+delete the file is chunkid already present in #garbage_collection#
+small addition need to made in populate- operations for merging
+ when merging - file already exist, but if the chunkserver comes up if a chunkid that was deleted. it need to check
+  a) if its there in the #garbage
+  b) if its not there, then there needs to be atleast one copy existing of that chunkid inorder to be considered as part of the file
+  c) if that exist then, the existing chunkid and new one should have the same hash
+
+-----------------------------------------------------
+does a new chunkserver when it registers, call replicate ?
+delete - master goes off - master boot, #garbage# gone (neeed to be solved with the watcher in zookeepr)
+kill master , create new master - watcher program should do that
+rename when reading a file
