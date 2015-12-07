@@ -137,7 +137,7 @@ class ZClient:
                             chunkloc = random.sample(chunkloc, 1)[0]
                             chunkloc2 = None
 
-                        print 'chunklocs = %s, chunkloc1 = %s, chunkloc2=%s' % (
+                        #print 'chunklocs = %s, chunkloc1 = %s, chunkloc2=%s' % (
                             chunklocs, chunkloc, chunkloc2)
                         digest = xxhash.xxh64(chunks[idx]).digest()
                         retdigest = chunkserver_clients[chunkloc].write(chunkuuid, chunks[idx],
@@ -166,9 +166,9 @@ class ZClient:
                     except Exception as e:
                         print 'Failed writing chunk %d to srv %s' % (idx, chunkloc)
                         print e.__doc__, e.message
-                        raise
+                        #raise
 
-        print call_replicate, finished
+        #print call_replicate, finished
         if call_replicate and finished:
             self.master.replicate()
 
@@ -185,10 +185,10 @@ class ZClient:
 
         for chunkserver_num, chunkserver_ip in chunkservers.iteritems():
             zclient = zerorpc.Client()
-            print 'Client connecting to chunkserver %s at %s' % (chunkserver_num, chunkserver_ip)
+            #print 'Client connecting to chunkserver %s at %s' % (chunkserver_num, chunkserver_ip)
             try:
                 zclient.connect(chunkserver_ip)
-                zclient.print_name()
+                #zclient.print_name()
                 chunkserver_clients[chunkserver_num] = zclient
             except LostRemote as e:
                 self.master.print_exception('Lost remote in client', None)
@@ -321,7 +321,7 @@ class ZClient:
                     lenchunkloc = len(chunkloc)
                     pool = mp.Pool(processes=4)
                     while flag is not True and id <= lenchunkloc:
-                        print 'id=', id
+                        #print 'id=', id
                         try:
 
                             # thread = threading.Thread(
@@ -417,7 +417,7 @@ class ZClient:
                     id = 0
                     lenchunkloc = len(chunkloc)
                     while flag is not True and id <= lenchunkloc:
-                        print 'id=', id
+                        #print 'id=', id
                         try:
                             thread = threading.Thread(
                                 target=self._read(chunkuuid, chunkserver_clients[chunkloc[id]],
@@ -542,8 +542,8 @@ class ZClient:
         for x in range(0, len(data1), chunksize):
             if data1[x:x + chunksize] != data2[x:x + chunksize] or len(
                     data2[x:x + chunksize]) < chunksize:
-                print "replace '" + data1[x:x + chunksize] + "' with '" + data2[
-                                                                          x:x + chunksize] + "'"
+                #print "replace '" + data1[x:x + chunksize] + "' with '" + data2[
+                #                                                         x:x + chunksize] + "'"
                 validservers = list(set(chunkdetails[y]['chunkloc']) - set(failed_chunkservers))
                 for i in validservers:
                     try:
@@ -630,14 +630,14 @@ class ZClient:
                 print "deleted some contents"
                 x = self.replacechunk(chunkservers, failed_chunkservers, chunkdetails,
                                       olddata[0:len_newdata], newdata, chunksize)
-                print "call fn() to delete chunks " + olddata[
+                #print "call fn() to delete chunks " + olddata[
                                                       len_newdata + 1:] + " from chunk server"
                 x = self.deletechunk(filename, chunkdetails, len_newdata, len_olddata, chunksize)
             elif len_newdata > len_olddata:
                 print "added some contents"
                 x = self.replacechunk(chunkservers, failed_chunkservers, chunkdetails, olddata,
                                       newdata[0:len_olddata], chunksize)
-                print "call fn() to add chunks '" + newdata[len_olddata + 1:] + "' to chunk server"
+                #print "call fn() to add chunks '" + newdata[len_olddata + 1:] + "' to chunk server"
                 x2 = self._edit_append(filename, newdata[len_olddata:])
 
             self.master.updatevrsn(filename, 1)

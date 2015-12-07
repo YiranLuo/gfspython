@@ -33,7 +33,7 @@ class ZChunkserver:
             print e.__doc__, e.message
 
         # local directory where chunks are stored
-        self.local_filesystem_root = "/tmp/gfs/chunks/" + repr(int(self.chunkloc))
+        self.local_filesystem_root = "/tmp/gfs/chunks/" #+ repr(int(self.chunkloc))
         if not os.access(self.local_filesystem_root, os.W_OK):
             os.makedirs(self.local_filesystem_root)
 
@@ -80,7 +80,7 @@ class ZChunkserver:
         except:
             return False
 
-        print "forward is ", forward
+        #print "forward is ", forward
         if forward:
             print "Forwarding chunk to loc", forward
             self.send_chunk(chunkuuid, str([forward]), chunk)
@@ -135,7 +135,7 @@ class ZChunkserver:
         zclient = zerorpc.Client()
         print 'Server connecting to chunkserver at %s' % chunkloc
         zclient.connect(chunkservers[chunkloc])
-        zclient.print_name()
+        #zclient.print_name()
         return zclient
 
     def delete(self, chunkuuids):
@@ -169,7 +169,7 @@ class ZChunkserver:
                     break
             except Exception as e:
                 flag = False
-                print "soe", type(e).__name__, e.args
+                print "some error happend in copy_chunk", type(e).__name__, e.args
 
         return flag
 
@@ -203,9 +203,9 @@ class ZChunkserver:
         return True
 
     def populate(self):
-        print "in populate, chunkloc=", self.chunkloc
+        #print "in populate, chunkloc=", self.chunkloc
         local_dir = self.chunk_filename("").replace(".gfs", "")
-        print "local dir is ", local_dir
+        #print "local dir is ", local_dir
         file_list = os.listdir(local_dir)
         if len(file_list) != 0:
             files = {}
@@ -224,7 +224,7 @@ class ZChunkserver:
                     files[filename] = []
                     files[filename].append(items)
 
-            print "files=%s, chunkloc=%s" % (files, self.chunkloc)
+            #print "files=%s, chunkloc=%s" % (files, self.chunkloc)
             # self.master.populate(files, str(self.chunkloc))
             return files, self.chunkloc
         else:

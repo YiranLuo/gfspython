@@ -102,8 +102,8 @@ class ZMaster:
                             print "Chunkserver %s was removed" % chunkserver_num
 
                         self.num_chunkservers = len(self.chunkservers)
-                        print "Now %d chunksrv" % self.num_chunkservers
-                        print "Calling replicate directly"
+                        #print "Now %d chunksrv" % self.num_chunkservers
+                        #print "Calling replicate directly"
                         self.replicate()
                     except Exception as ex:
                         self.print_exception('Removing chunkserver', ex)
@@ -139,7 +139,7 @@ class ZMaster:
             self.num_chunkservers += 1
             # self.chunkstats[chunkserver_num] = c.get_stats()
             print 'Chunksrv #%d registered at %s' % (int(chunkserver_num), chunkserver_ip)
-            print 'Number of chunkservers = %d' % self.num_chunkservers
+            #print 'Number of chunkservers = %d' % self.num_chunkservers
         except Exception as e:
             self.print_exception('registering chunkserver %s to %s' %
                                  (chunkserver_num, chunkserver_ip), e)
@@ -272,7 +272,7 @@ class ZMaster:
             self.versntable[filename] += 1
         else:
             self.versntable[filename] = 0
-        print filename, self.versntable[filename]
+        #print filename, self.versntable[filename]
 
     def _establish_connection(self, chunkloc):
         """
@@ -287,7 +287,7 @@ class ZMaster:
                 zclient = zerorpc.Client()
                 print 'Server connecting to chunkserver at %s' % chunkservers[chunkloc]
                 zclient.connect(chunkservers[chunkloc])
-                zclient.print_name()
+                #zclient.print_name()
                 return zclient
             except:
                 return False
@@ -297,15 +297,15 @@ class ZMaster:
 
         try:
             chunklocs = self.filetable["#garbage_collection#"]
-            print chunklocs, chunklocs.keys(), self.chunkservers.keys()
+            #print chunklocs, chunklocs.keys(), self.chunkservers.keys()
             failedservers = list(set(chunklocs.keys()) - set(self.chunkservers.keys()))
             legitservers = list(set(chunklocs.keys()) - set(failedservers))
-            print "legit,failed ", legitservers, failedservers
+            #print "legit,failed ", legitservers, failedservers
         except:
             chunklocs = {}
 
         if chunklocs:
-            print "in garbage"
+            #print "in garbage"
             for chunkloc in chunklocs.keys():
                 # connect with each chunkserver if its not a failed server
                 if chunkloc not in failedservers:
@@ -372,7 +372,7 @@ class ZMaster:
                             self.print_exception('in replicate', e)
 
                     if chunkserver[chunkloc].copy_chunk(chunkid, temp):
-                        print "Update chunktable"
+                        #print "Update chunktable"
                         self.chunktable[chunkid].append(chunkloc)
 
                     result = {}
@@ -422,7 +422,7 @@ class ZMaster:
                         self.filetable[deleted_filename][chunkloc].append(chunkid)
                 del self.chunktable[chunkid]
 
-            print self.filetable[deleted_filename]
+            #print self.filetable[deleted_filename]
             # self.collect_garbage()
         except Exception as e:
             print "Unexpected error in delete:"
@@ -434,7 +434,7 @@ class ZMaster:
 
         self.lock.acquire()
         try:
-            print filename, chunk_rm_ids
+            #print filename, chunk_rm_ids
             chunkuuids = self.filetable[filename]
             self.filetable[filename] = [x for x in chunkuuids if x not in chunk_rm_ids]
             self.delete(filename, chunk_rm_ids)
@@ -603,7 +603,7 @@ class ZMaster:
                     orig_chunkids = chunkids[:]
                     chunkids = list(set(chunkids) - set([list(x)[0] for x in set(
                         tuple(x) for x in self.filetable['#garbage_collection#'].values())]))
-                    print "chunkids", chunkids
+                    #print "chunkids", chunkids
                     if chunkids != []:
                         print "operation for adding", filename
                         self.filetable[filename] = chunkids
