@@ -11,6 +11,7 @@ from kazoo.client import KazooClient
 from kazoo.exceptions import NoNodeError
 from kazoo.recipe.lock import LockTimeout
 from zerorpc.exceptions import LostRemote
+import logging
 
 TARGET_CHUNKS = 10
 MIN_CHUNK_SIZE = 1024000
@@ -18,6 +19,8 @@ MIN_CHUNK_SIZE = 1024000
 
 class ZClient:
     def __init__(self, zoo_ip='localhost:2181', port=1400):
+        logging.basicConfig(filename='log.txt')
+        
         self.master = zerorpc.Client()
         self.zookeeper = KazooClient(hosts=zoo_ip)
 
@@ -45,6 +48,12 @@ class ZClient:
             raise
 
         return master_ip
+
+    def load(self, filename):
+        with open(filename, 'rb') as f:
+            data = f.read()
+
+        self.write(filename, data)
 
     def close(self):
         """Closes connection with master"""
@@ -103,7 +112,6 @@ class ZClient:
 
         response = None
         while response is None:
-            print "response = ", response
             try:
                 response = self.master.exists(filename)
             except:
@@ -146,8 +154,6 @@ class ZClient:
                             chunkloc = random.sample(chunklocs, 1)[0]
                             chunkloc2 = None
 
-                        print 'chunklocs = %s, chunkloc1 = %s, chunkloc2=%s' % (
-                            chunklocs, chunkloc, chunkloc2)
                         digest = xxhash.xxh64(chunks[idx]).digest()
                         retdigest = chunkserver_clients[chunkloc].write(chunkuuid, chunks[idx],
                                                                         chunkloc2)
@@ -196,7 +202,6 @@ class ZClient:
 
         for chunkserver_num, chunkserver_ip in chunkservers.iteritems():
             zclient = zerorpc.Client()
-            print 'Client connecting to chunkserver %s at %s' % (chunkserver_num, chunkserver_ip)
             try:
                 zclient.connect(chunkserver_ip)
                 zclient.print_name()
