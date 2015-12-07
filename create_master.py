@@ -1,14 +1,10 @@
-import zerorpc
-import zmaster
 import sys
-from apscheduler.schedulers.background import BackgroundScheduler
-import time
+
+import zerorpc
+
+import zmaster
 
 PORT = 1400
-
-
-def hello(fmt):
-    print "hi at %s" % time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
 
 def main(argv):
@@ -19,11 +15,6 @@ def main(argv):
     else:
         port = PORT
 
-    # this schedules background tasks in separate thread
-    # scheduler = BackgroundScheduler()
-    # scheduler.add_job(hello, 'interval', minutes=0.1)
-    # scheduler.start()
-
     s = zerorpc.Server(zmaster.ZMaster())
     # connect to master
     s.bind('tcp://*:%d' % port)
@@ -33,6 +24,8 @@ def main(argv):
     try:
         s.run()
     except:
+        print 'Unable to start master'
+    finally:
         print 'Closing master on port %s' % port
         s.close()
         # scheduler.shutdown()

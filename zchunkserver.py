@@ -3,6 +3,7 @@ import os
 import re
 import subprocess
 import xxhash
+import getpass
 
 import zerorpc
 from kazoo.client import KazooClient, KazooState
@@ -43,16 +44,23 @@ class ZChunkserver:
                 print "suspended|lost state"
                 # TODO connect to zookeeper again
 
-        self.zookeeper.start()
-        self.zookeeper.add_listener(my_listener)
-        self.zookeeper.ensure_path('chunkserver')
-        master_ip = self.zookeeper.get('master')[0]
+        try:
+            self.zookeeper.start()
+            self.zookeeper.add_listener(my_listener)
+            self.zookeeper.ensure_path('chunkserver')
+            master_ip = self.zookeeper.get('master')[0].split('@')[-1]
 
-        path = self.zookeeper.create('chunkserver/', ephemeral=True, sequence=True)
-        # path = self.zookeeper.create('chunkserver/2', ephemeral=True)
+            path = self.zookeeper.create('chunkserver/', ephemeral=True, sequence=True)
+            self.chunkloc = path.replace('/chunkserver/', '')
 
-        self.chunkloc = path.replace('/chunkserver/', '')
-        self.zookeeper.set(path, zutils.get_tcp(4400 + int(self.chunkloc)))
+            data = '{username}@{tcpip}'.format(username=getpass.getuser(),
+                                               tcpip=zutils.get_tcp(4400 + int(self.chunkloc)))
+
+            # self.zookeeper.set(path, zutils.get_tcp(4400 + int(self.chunkloc)))
+            self.zookeeper.set(path, data)
+
+        except Exception as e:
+            print "Exception while registering with zookeeper: %s, %s" % (type(e).__name__, e.args)
 
         return master_ip
 
@@ -65,9 +73,12 @@ class ZChunkserver:
 
     def write(self, chunkuuid, chunk, forward=None):
         local_filename = self.chunk_filename(chunkuuid)
-        with open(local_filename, "wb") as f:
-            f.write(chunk)
-            self.chunktable[chunkuuid] = local_filename
+        try:
+            with open(local_filename, "wb") as f:
+                f.write(chunk)
+                self.chunktable[chunkuuid] = local_filename
+        except:
+            return False
 
         print "forward is ", forward
         if forward:
@@ -156,9 +167,9 @@ class ZChunkserver:
                 flag = self.rwrite(chunkid, data)
                 if flag:
                     break
-            except:
+            except Exception as e:
                 flag = False
-                print "soe"
+                print "soe", type(e).__name__, e.args
 
         return flag
 
@@ -173,7 +184,7 @@ class ZChunkserver:
                     break
             except Exception as e:
                 flag = False
-                self.master.print_exception('sending chunk', e)
+                self.master.print_exception('sending chunk', None, type(e).__name__)
 
         return flag
 
@@ -196,9 +207,14 @@ class ZChunkserver:
         local_dir = self.chunk_filename("").replace(".gfs", "")
         print "local dir is ", local_dir
         file_list = os.listdir(local_dir)
-        if file_list != []:
+        if len(file_list) != 0:
             files = {}
             for items in file_list:
+                # TODO
+                # if master.exists
+                # read all chunks (in parallel?)
+                # if any xxhash is not the same, os.delete()
+                # else add as regular
                 items = items.replace(".gfs", "")
                 filename = items.split("$%#")[0]
                 self.chunktable[items] = self.chunk_filename(items)
