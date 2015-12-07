@@ -134,7 +134,7 @@ class ZClient:
                         if len(chunklocs) > 1:
                             chunkloc, chunkloc2 = random.sample(chunklocs, 2)
                         else:
-                            chunkloc = random.sample(chunkloc, 1)[0]
+                            chunkloc = random.sample(chunklocs, 1)[0]
                             chunkloc2 = None
 
                         print 'chunklocs = %s, chunkloc1 = %s, chunkloc2=%s' % (
@@ -170,6 +170,9 @@ class ZClient:
 
         if call_replicate and finished:
             self.master.replicate()
+
+        for client in chunkserver_clients.values():
+            client.close()
 
         return chunklist
 
@@ -230,23 +233,32 @@ class ZClient:
                 chunkserver_clients = self._establish_connection(chunkserver_nums)
                 jobs = []
                 chunks = [None] * len(chunkuuids)
-                print chunkserver_clients
+                failed_chunkservers = []
                 for i, chunkuuid in enumerate(chunkuuids):
-                    chunkloc = chunktable[chunkuuid]
-                    print chunkloc
                     flag = False
                     id = 0
-                    lenchunkloc = len(chunkloc)
+
                     while flag is not True:
                         try:
+                            chunklocs = [c_loc for c_loc in chunktable[chunkuuid] if c_loc not in failed_chunkservers]
+                            lenchunkloc = len(chunklocs)
+                            print 'chunklocs = ', chunklocs
+                            if chunklocs:
+                                next_chunkloc = random.sample(chunklocs, 1)[0]
+                            else:
+                                print 'Failed reading file - no chunkservers'
+                                return None
+
+                            print 'next chunkloc is ', next_chunkloc
                             thread = threading.Thread(
-                                target=self._read(chunkuuid, chunkserver_clients[chunkloc[id]],
+                                target=self._read(chunkuuid, chunkserver_clients[next_chunkloc],
                                                   chunks, i))
                             jobs.append(thread)
                             thread.start()
                             flag = True
                         except:
                             print 'Failed to connect to loc %d' % id
+                            failed_chunkservers.append(next_chunkloc)
                             flag = False
                             id += 1
                             if id >= lenchunkloc:
@@ -268,6 +280,8 @@ class ZClient:
                 return None
             finally:
                 # lock.release()
+                for client in chunkserver_clients.values():
+                    client.close()
                 pass
 
         return data
@@ -433,6 +447,8 @@ class ZClient:
                 raise
             finally:
                 lock.release()
+                for client in chunkserver_clients.values():
+                    client.close()
 
             return data, chunkdetails, chunkserver_clients, failed_chunkservers
 
