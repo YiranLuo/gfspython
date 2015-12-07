@@ -4,6 +4,7 @@ import time
 import webbrowser
 import xxhash
 import random
+import multiprocessing as mp
 
 import zerorpc
 from kazoo.client import KazooClient
@@ -285,84 +286,81 @@ class ZClient:
         f.close()
         webbrowser.open(fn)
 
-    def read_parallel(self, filename):  # get metadata, then read chunks direct
+    def read_mp(self, filename):
         """
         Connects to each chunkserver and reads the chunks in order, then
-        assembles the file by reducing
+        assembles the file by reducing.  Returns details for editing
         :param filename:
-        :return:  file contents
+        :param failed_chunkservers
+        :return:  details, file contents
         """
 
         if not self._exists(filename):
-            print "Read error - file does not exist"
+            raise Exception("read error, file does not exist: " + filename)
 
         if filename == "#garbage_collection#":
             print self.master.get_chunkuuids(filename)
         else:
             try:
-                start = time.time()
-
-                # lock = self.zookeeper.Lock('files/' + filename)
-                # lock.acquire(timeout=5)
+                lock = self.zookeeper.Lock('files/' + filename)
+                lock.acquire(timeout=5)
 
                 # chunks = []
                 jobs = []
                 chunkuuids = self.master.get_chunkuuids(filename)
-                # print "How many chunks? = %d" % len(chunkuuids)
+                chunkdetails = []
                 chunktable = self.master.get_file_chunks(filename)
-                chunkserver_nums = set(num for numlist in chunktable.values() for num in numlist)
-                # result = set(x for l in v for x in l)
                 chunks = [None] * len(chunkuuids)
-                chunkserver_clients = self._establish_connection(chunkserver_nums)
+                chunkserver_clients = self._establish_connection()
+                failed_chunkservers = []
+                raw_input('Enter')
                 for i, chunkuuid in enumerate(chunkuuids):
-                    chunkloc = chunktable[chunkuuid][0]  # FIX ME LATER
-                    thread = threading.Thread(
-                        target=self._read(chunkuuid, chunkserver_clients[chunkloc], chunks, i))
-                    jobs.append(thread)
-                    thread.start()
+                    chunkloc = chunktable[chunkuuid]  # TODO FIX ME LATER, reads from [0] below
+
+                    flag = False
+                    id = 0
+                    lenchunkloc = len(chunkloc)
+                    pool = mp.Pool(processes=4)
+                    while flag is not True and id <= lenchunkloc:
+                        print 'id=', id
+                        try:
+
+                            # thread = threading.Thread(
+                            #     target=self._read(chunkuuid, chunkserver_clients[chunkloc[id]],
+                            #                       chunks, i))
+                            result = pool.apply_async(self._read, args=(chunkuuid,
+                                                                        chunkserver_clients[
+                                                                            chunkloc[id]], chunks,
+                                                                        i))
+                            jobs.append(result)
+                            flag = True
+                        except:
+                            print 'Failed to connect to loc %d' % id
+                            failed_chunkservers.append(chunkloc[id])
+                            flag = False
+                            id += 1
+                            if id >= lenchunkloc:
+                                print 'Error reading file %s' % filename
+                                return None
 
                 # block until all threads are done before reducing chunks
                 for j in jobs:
-                    j.join()
+                    j.wait()
 
                 data = ''.join(chunks)
-                end = time.time()
-                print "Total time reading was %0.2f ms" % ((end - start) * 1000)
-                print "Transfer rate: %0.f MB/s" % (len(data) / 1024 ** 2. / (end - start))
+
+                # print chunkdetails
 
             except LockTimeout:
                 print "File in use - try again later"
                 return None
-            except Exception as e:
+            except:
                 print "Error reading file %s" % filename
-                print e.__doc__
-                print e.message
-                return None
+                raise
             finally:
-                # lock.release()
-                pass
+                lock.release()
 
-            # # TODO temporary
-            # import os
-            # import webbrowser
-            # fdir = "/tmp/gfs/files/"
-            # if not os.access(fdir, os.W_OK):
-            #     os.makedirs(fdir)
-            # fn = os.path.abspath('/tmp/gfs/files/' + filename)
-            # f = open(fn, 'wb')
-            # f.write(data)
-            # os.fsync(f)  # ensure data is on disk
-            # f.close()
-            # webbrowser.open(fn)
-            # raw_input("Press any key to continue")
-            # try:
-            #     os.remove(fn)
-            # except Exception as e:
-            #     print "Error removing tmp file: ", e.__doc__
-            #     print e.message
-
-            return data
-            # return "opened in webbrowser - call read_with_details(filename)[0] for the data =P"
+            return data, chunkdetails, chunkserver_clients, failed_chunkservers
 
     def read_with_details(self, filename,
                           failed_chunkservers):  # get metadata, then read chunks direct

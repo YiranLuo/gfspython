@@ -55,6 +55,16 @@ add {'#garbage_collection#': {}} in class variable declaration of filetable
 collect garbage, take cares of list of servers diconnected before deleteing their data
 
 -----------------------------------------------------
+
+Stuff I did:
+-fixed write
+-correct metadata update after writing (send_chunk called, but metadata was not being updated)
+-watcher program
+  todo-handles garbage saving
+  -starts newchunkserv
+  -starts master
+
+
 does a new chunkserver when it registers, call replicate ?
 delete - master goes off - master boot, #garbage# gone (neeed to be solved with the watcher in zookeepr)
 kill master , create new master - watcher program should do that

@@ -8,7 +8,8 @@ import zutils
 
 PORT = 1401
 CHUNKSERVER_PATH = 'chunkserver/'
-GFS_PATH = '~/workspaces/gitlabs/gfspython'
+MASTER_PATH = 'master'
+GFS_PATH = '~/workspaces/gitlabs/gfspython/'
 SERVER = 'create_server.py {}'
 MASTER = 'create_master.py'
 
@@ -16,6 +17,7 @@ MASTER = 'create_master.py'
 def ssh(target, command):
     # y = x.split('@')[0]  name
     # y.split('//')[-1]
+    command = '{}{}'.format(GFS_PATH, command)
     print 'in ssh, target=%s, command=%s' % (target, command)
 
     try:
@@ -24,12 +26,11 @@ def ssh(target, command):
                          stdout=subprocess.PIPE,
                          stdin=subprocess.PIPE)
 
+        return True
+
     except Exception as e:
         print e.message, type(e)
         return False
-
-    return True
-
 
 class Watcher:
     def __init__(self, zoo_ip='localhost:2181', port=PORT):
@@ -52,7 +53,9 @@ class Watcher:
             self.zookeeper.ensure_path('watcher')
             self.zookeeper.set('watcher', address)
 
-            self.master_address = self.zookeeper.get('master')[0].split('@')[-1]
+            # self.master_address = self.zookeeper.get('master')[0].split('@')[-1]
+            self.master_address = self.convert_zookeeper_ip(self.zookeeper.get('master')[0])
+            print 'master address', self.master_address
         except:
             print 'Unable to connect to zookeeper, shutting down'
             sys.exit(2)
@@ -66,6 +69,19 @@ class Watcher:
             print 'Registering cnum %s as %s' % (chunkserver_num, chunkserver_ip)
 
             self._register_chunkserver(chunkserver_num, chunkserver_ip)
+
+        @self.zookeeper.ChildrenWatch(MASTER_PATH)
+        def watch_master(children):
+            children = self.zookeeper.get_children('master')
+            if children:
+                self.master_address = self.convert_zookeeper_ip(self.zookeeper.get('master')[0])
+                print 'new master address = ', self.master_address
+            else:
+                print 'masteraddr = ', self.master_address
+                if ssh(self.master_address, MASTER):
+                    print 'Another master successfully started'
+                else:
+                    print 'Could not recover master'
 
         @self.zookeeper.ChildrenWatch(CHUNKSERVER_PATH)
         def watch_chunkservers(children):
@@ -94,12 +110,13 @@ class Watcher:
                     removed_servers = [chunkserver_num for chunkserver_num in self.chunkservers
                                        if chunkserver_num not in children]
                     for chunkserver_num in removed_servers:
-                        self._unregister_chunkserver(chunkserver_num)
-                        print "Chunkserver %s was removed" % chunkserver_num
+
                         if ssh(self.chunkservers[chunkserver_num], SERVER):
                             print "Another chunkserver to replace %s " % chunkserver_num
                         else:
                             print 'Failed to recover from cs num %s failure' % chunkserver_num
+
+                        self._unregister_chunkserver(chunkserver_num)
 
                 except Exception as ex:
                     self.print_exception('Removing chunkserver', ex)

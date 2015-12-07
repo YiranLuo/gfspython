@@ -53,6 +53,7 @@ class ZMaster:
             # self.zookeeper.create('master', ephemeral=True, value=address)
             self.zookeeper.ensure_path('master')
             self.zookeeper.ensure_path('chunkserver')
+            self.zookeeper.create('master/0', ephemeral=True)
             data = '{username}@{tcpip}'.format(username=getpass.getuser(),
                                                tcpip=address)
 
