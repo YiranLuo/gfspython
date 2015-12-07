@@ -646,7 +646,7 @@ class ZClient:
                 x = self.replacechunk(chunkservers, failed_chunkservers, chunkdetails,
                                       olddata[0:len_newdata], newdata, chunksize)
                 #print "call fn() to delete chunks " + olddata[
-                                                      len_newdata + 1:] + " from chunk server"
+                                                     # len_newdata + 1:] + " from chunk server"
                 x = self.deletechunk(filename, chunkdetails, len_newdata, len_olddata, chunksize)
             elif len_newdata > len_olddata:
                 print "added some contents"
