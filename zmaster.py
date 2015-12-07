@@ -217,7 +217,9 @@ class ZMaster:
 
     # temporary functions
     def exists(self, filename):
-        return True if filename in self.filetable else False
+        exists = filename in self.filetable
+        return exists
+        # return True if filename in self.filetable else False
 
     def call_servers(self):
         """
