@@ -19,7 +19,7 @@ def main(argv):
 
     s = zerorpc.Server(zmaster.ZMaster(zoo_ip=ip))
     # connect to master
-    s.bind('tcp://*:%d' % port)
+    s.bind('tcp://*:%d' % PORT)
 
     print 'Registering master on port %s' % PORT
 
