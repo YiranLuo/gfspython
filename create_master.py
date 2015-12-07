@@ -1,3 +1,5 @@
+#!/usr/bin/python
+
 import sys
 
 import zerorpc
@@ -5,28 +7,28 @@ import zerorpc
 import zmaster
 
 PORT = 1400
-
+ZOO_IP = 'localhost'
 
 def main(argv):
 
     # easy way to create master on port other than 1400 if needed
-    if argv and argv[0].isdigit():
-        port = argv[0]
+    if argv:
+        ip = argv[0]
     else:
-        port = PORT
+        ip = ZOO_IP
 
-    s = zerorpc.Server(zmaster.ZMaster())
+    s = zerorpc.Server(zmaster.ZMaster(zoo_ip=ip))
     # connect to master
-    s.bind('tcp://*:%d' % port)
+    s.bind('tcp://*:%d' % PORT)
 
-    print 'Registering master on port %s' % port
+    print 'Registering master on port %s' % PORT
 
     try:
         s.run()
     except:
         print 'Unable to start master'
     finally:
-        print 'Closing master on port %s' % port
+        print 'Closing master on port %s' % PORT
         s.close()
         # scheduler.shutdown()
         

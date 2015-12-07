@@ -9,9 +9,9 @@ import zutils
 PORT = 1401
 CHUNKSERVER_PATH = 'chunkserver/'
 MASTER_PATH = 'master'
-GFS_PATH = '~/workspaces/gitlabs/gfspython/'
+GFS_PATH = '~/gfspython/'
 SERVER = 'create_server.py {}'
-MASTER = 'create_master.py'
+MASTER = 'create_master.py {}'
 
 
 def ssh(target, command):
@@ -36,15 +36,17 @@ class Watcher:
     def __init__(self, zoo_ip='localhost:2181', port=PORT):
         self.lock = threading.RLock()
         self.chunkservers = {}
+        self.master_address = None
         self.garbage_table = {'#garbage_collection#': {}}
         self.zookeeper = KazooClient(hosts=zoo_ip)
         self._register_with_zookeeper(port)
-        self.master_address = None
+
         global SERVER
         if zoo_ip == 'localhost':
             zoo_ip = zutils.get_myip()
-
         SERVER = SERVER.format(zoo_ip)
+        global MASTER
+        MASTER = MASTER.format(zoo_ip)
 
     def _register_with_zookeeper(self, port):
         try:
@@ -54,20 +56,24 @@ class Watcher:
             self.zookeeper.set('watcher', address)
 
             # self.master_address = self.zookeeper.get('master')[0].split('@')[-1]
-            self.master_address = self.convert_zookeeper_ip(self.zookeeper.get('master')[0])
-            print 'master address', self.master_address
+            master_ip = self.zookeeper.get('master')[0]
+            self.master_address = self.convert_zookeeper_ip(master_ip)
+            print 'master address', self.master_address, master_ip
         except:
             print 'Unable to connect to zookeeper, shutting down'
             sys.exit(2)
 
-        # registers chunkserver with master when ip set on zookeeper
-        def watch_ip(event):
+        def watch_it(event):
             path = event.path
             # get chunkserver_ip = uname@tcp://ip:port, convert to uname@ip for ssh
-            chunkserver_ip = self.convert_zookeeper_ip(self.zookeeper.get(path)[0])
-            chunkserver_num = path[path.rfind('/') + 1:]
-            print 'Registering cnum %s as %s' % (chunkserver_num, chunkserver_ip)
+            try:
+                chunkserver_ip = self.convert_zookeeper_ip(self.zookeeper.get(path)[0])
+                chunkserver_num = path[path.rfind('/') + 1:]
+            except:
+                print 'Error registering chunkserver'
+                return False
 
+            print 'Registering chunkserver num %s as %s' % (chunkserver_num, chunkserver_ip)
             self._register_chunkserver(chunkserver_num, chunkserver_ip)
 
         @self.zookeeper.ChildrenWatch(MASTER_PATH)
@@ -75,9 +81,8 @@ class Watcher:
             children = self.zookeeper.get_children('master')
             if children:
                 self.master_address = self.convert_zookeeper_ip(self.zookeeper.get('master')[0])
-                print 'new master address = ', self.master_address
+                print '\nMaster down - attempting to recover', self.master_address
             else:
-                print 'masteraddr = ', self.master_address
                 if ssh(self.master_address, MASTER):
                     print 'Another master successfully started'
                 else:
@@ -93,13 +98,19 @@ class Watcher:
                                     if chunkserver_num not in self.chunkservers]
                 for chunkserver_num in new_chunkservers:
                     try:
-                        chunkserver_ip = self.convert_zookeeper_ip(
-                            self.zookeeper.get(CHUNKSERVER_PATH + chunkserver_num)[0])
-                        # if IP is not set yet, assign watcher to wait
-                        if len(chunkserver_ip) == 0:
+                        # zoo_ip = self.zookeeper.get(CHUNKSERVER_PATH + chunkserver_num,
+                        #                             watch=watch_it)[0]
+                        zoo_ip = self.zookeeper.get(CHUNKSERVER_PATH + chunkserver_num)[0]
+                        print 'zoo ip ', zoo_ip
+
+                        # chunkserver_ip = self.convert_zookeeper_ip(
+                        #     self.zookeeper.get(CHUNKSERVER_PATH + chunkserver_num)[0])
+                        if not zoo_ip:
+                            print 'no ip yet, watching for it'
                             self.zookeeper.exists(CHUNKSERVER_PATH + chunkserver_num,
-                                                  watch=watch_ip)
+                                                  watch=watch_it)
                         else:
+                            chunkserver_ip = self.convert_zookeeper_ip(zoo_ip)
                             self._register_chunkserver(chunkserver_num, chunkserver_ip)
                     except Exception as ex:
                         self.print_exception('watch children, adding chunkserver', ex)
@@ -154,14 +165,12 @@ class Watcher:
             print type(exception).__name__, ': ', exception.args
 
     def get(self):
-        return self.chunkservers
+        print self.chunkservers
+        print self.master_address
 
     @staticmethod
     def convert_zookeeper_ip(data):
-
-        print 'converting %s to:' % data
         data = data.replace('tcp://', '')
         data = data[:data.rfind(':')]
-        print 'now %s' % data
 
         return data
