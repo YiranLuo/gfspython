@@ -1,6 +1,6 @@
 # Osley File System
 
-Osley File System is a basic implementation of [Google File System](http://static.googleusercontent.com/media/research.google.com/es//archive/gfs-sosp2003.pdf) written for a Distributed Systems class project.  GFS is a high availability scalable distributed file system with fault tolerance, replication, maintains consistency, and strong performance for large-scale data processing on commodity hardware.  
+Osley File System is a basic implementation of [Google File System](http://static.googleusercontent.com/media/research.google.com/es//archive/gfs-sosp2003.pdf) written for a Distributed Systems class project.  GFS is a high availability scalable distributed file system with fault tolerance, replication, consistency, and strong performance for large-scale data processing on commodity hardware.  
 
 Osley implements the main features of GFS, including:
 
