@@ -1,5 +1,8 @@
 ****************************************************
- **first time: may need to set execution permission by chmod u+x zookeeper-3.4.6/bin/*
+ **
+ download zookeeper, tested with version 3.4.6.
+ add zoo.fg to zookeeper-3.4.6/conf/
+ first time: may need to set execution permission by chmod u+x zookeeper-3.4.6/bin/*
 start server with zookeeper-3.4.6/bin/zkServer.sh start
 stop with zookeeper-3.4.6/bin/zkServer.sh start
 
