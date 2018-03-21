@@ -37,6 +37,7 @@ def main():
     serv = zerorpc.Server(chunkserver)
     serv.bind(address)
     logger.info(f'Registered chunkserver number {reg_num} at {address}')
+
     try:
         serv.run()
     except ZMQError as err:
