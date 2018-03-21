@@ -34,19 +34,19 @@ def main():
     port = args.port + reg_num
     address = f'tcp://{zutils.get_myip()}:{port}'
 
-    s = zerorpc.Server(chunkserver)
-    s.bind(address)
+    serv = zerorpc.Server(chunkserver)
+    serv.bind(address)
     logger.info(f'Registered chunkserver number {reg_num} at {address}')
     try:
-        s.run()
-    except ZMQError as e:
-        logging.exception(e.strerror)
+        serv.run()
+    except ZMQError as err:
+        logging.exception(err.strerror)
         raise SystemExit('Unable to start server due to exception:  {e.strerror}')
     except KeyboardInterrupt:
         pass
     finally:
         logger.info(f'Closing server at {address}')
-        s.close()
+        serv.close()
 
 
 if __name__ == '__main__':
