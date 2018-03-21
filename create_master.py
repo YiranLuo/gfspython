@@ -1,28 +1,27 @@
 #!/usr/bin/python
 
 import logging
-import sys
-
+import argparse
 import zerorpc
 
 import zmaster
 
-PORT = 1400
-ZOO_IP = 'localhost'
 
-
-def main(argv):
+def main():
     logger = logging.getLogger(__name__)
-    if argv:
-        ip = argv[0]
-    else:
-        ip = ZOO_IP
+    parser = argparse.ArgumentParser(description='Start master server')
+    parser.add_argument('-p', '--port', default=1400, type=int, help='Local port number to start master on, '
+                                                                     'default 1400.')
+    parser.add_argument('-z', '--zoo-ip', dest='zoo_ip', default='localhost', type=str, help='IP address of zookeeper')
 
-    s = zerorpc.Server(zmaster.ZMaster(zoo_ip=ip))
+    args = parser.parse_args()
+    port, zoo_ip = args.port, args.zoo_ip
+
+    s = zerorpc.Server(zmaster.ZMaster(zoo_ip=zoo_ip))
     # connect to master
-    s.bind('tcp://*:%d' % PORT)
+    s.bind(f'tcp://*:{port}')
 
-    logger.info(f'Registering master on port {PORT}')
+    logger.info(f'Registering master on port {port}')
 
     try:
         s.run()
@@ -30,10 +29,10 @@ def main(argv):
         logger.error(f'Unable to start master')
         raise
     finally:
-        logger.info(f'Closing master on port {PORT}')
+        logger.info(f'Closing master on port {port}')
         s.close()
         # scheduler.shutdown()
 
 
 if __name__ == '__main__':
-    main(sys.argv[1:])
+    main()
