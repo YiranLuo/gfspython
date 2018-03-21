@@ -1,44 +1,53 @@
 #!/usr/bin/python
+""" Creates a chunkserver for OFS.
 
-import sys
+This module creates an instance of `zchunkserver.ZChunkserver` and registers with Zookeeper.  After registration,
+the chunkserver is able to upload its metadata and query Zookeeper for the location of the master and other
+chunkservers.
+
+Example:
+
+    $ python create_server.py -p 4500 -z localhost:2121
+"""
+
+import argparse
+import logging
 
 from zmq import ZMQError
 import zerorpc
 
-import zutils
 import zchunkserver
+import zutils
 
 
-ZOO_IP = 'localhost'
+def main():
+    """Parse args and start the server"""
+    logger = logging.getLogger(__name__)
+    parser = argparse.ArgumentParser(description='Start chunkserver')
+    parser.add_argument('-p', '--port', default=4400, type=int, help='Base port to start from, default 4400. '
+                                                                     'Chunkserver registration number added to base.')
+    parser.add_argument('-z', '--zoo-ip', dest='zoo_ip', default='localhost', type=str, help='IP address of zookeeper')
 
-
-def main(argv):
-
-    if argv:
-        zoo_ip = str(argv[0])
-    else:
-        zoo_ip = ZOO_IP
-
-    chunkserver = zchunkserver.ZChunkserver(zoo_ip=zoo_ip)
+    args = parser.parse_args()
+    chunkserver = zchunkserver.ZChunkserver(zoo_ip=args.zoo_ip)
     reg_num = int(chunkserver.chunkloc)
-    s = zerorpc.Server(chunkserver)
-    port = 4400 + reg_num
-    address = 'tcp://%s:%d' % (zutils.get_myip(), port)
+    port = args.port + reg_num
+    address = f'tcp://{zutils.get_myip()}:{port}'
 
+    s = zerorpc.Server(chunkserver)
+    s.bind(address)
+    logger.info(f'Registered chunkserver number {reg_num} at {address}')
     try:
-        print 'Registering chunkserver %d on at %s' % (reg_num, address)
-        s.bind(address)
         s.run()
     except ZMQError as e:
-        print "Unable to start server: " + e.strerror
-        s.close()
-        sys.exit(2)
+        logging.exception(e.strerror)
+        raise SystemExit('Unable to start server due to exception:  {e.strerror}')
     except KeyboardInterrupt:
         pass
     finally:
-        print 'Closing server on %s' % address
+        logger.info(f'Closing server at {address}')
         s.close()
-        
-if __name__ == '__main__':
-    main(sys.argv[1:])
 
+
+if __name__ == '__main__':
+    main()
