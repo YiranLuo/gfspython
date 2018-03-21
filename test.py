@@ -12,7 +12,7 @@ deletewhen=[6]
 
 choice=0
 
-while(flag!='0'):
+while flag!= '0':
   a=client.master.get('filetable').keys()
   a.remove('#garbage_collection#')
 
