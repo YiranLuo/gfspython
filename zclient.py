@@ -215,7 +215,7 @@ class ZClient:
         chunkserver_clients = {}
         chunkservers = self.master.get('chunkservers')
 
-        for chunkserver_num, chunkserver_ip in chunkservers.items():
+        for chunkserver_num, chunkserver_ip in list(chunkservers.items()):
             zclient = zerorpc.Client()
             # print 'Client connecting to chunkserver %s at %s' % (chunkserver_num, chunkserver_ip)
             try:
@@ -355,7 +355,7 @@ class ZClient:
                 chunks = [None] * len(chunkuuids)
                 chunkserver_clients = self._establish_connection()
                 failed_chunkservers = []
-                input('Enter')
+                eval(input('Enter'))
                 for i, chunkuuid in enumerate(chunkuuids):
                     chunkloc = chunktable[chunkuuid]  # TODO FIX ME LATER, reads from [0] below
 

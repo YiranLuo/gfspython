@@ -30,7 +30,7 @@ def ssh(target, command):
         return True
 
     except Exception as e:
-        print
+        print()
         e.message, type(e)
         return False
 
@@ -55,7 +55,7 @@ class Watcher:
         try:
             self.zookeeper.start()
         except KazooException:
-            print
+            print()
             'Unable to connect to zookeeper, shutting down'
             sys.exit(2)
         else:
@@ -66,7 +66,7 @@ class Watcher:
             # self.master_address = self.zookeeper.get('master')[0].split('@')[-1]
             master_ip = self.zookeeper.get('master')[0]
             self.master_address = self.convert_zookeeper_ip(master_ip)
-            print
+            print()
             'master address', self.master_address, master_ip
 
         def watch_it(event):
@@ -79,7 +79,7 @@ class Watcher:
                 print(f'Error registering chunkserver:  {e.message}')
                 return False
 
-            print
+            print()
             'Registering chunkserver num %s as %s' % (chunkserver_num, chunkserver_ip)
             self._register_chunkserver(chunkserver_num, chunkserver_ip)
 
@@ -88,20 +88,20 @@ class Watcher:
             children = self.zookeeper.get_children('master')
             if children:
                 self.master_address = self.convert_zookeeper_ip(self.zookeeper.get('master')[0])
-                print
+                print()
                 '\nMaster down - attempting to recover', self.master_address
             else:
                 if ssh(self.master_address, MASTER):
-                    print
+                    print()
                     'Another master successfully started'
                 else:
-                    print
+                    print()
                     'Could not recover master'
 
         @self.zookeeper.ChildrenWatch(CHUNKSERVER_PATH)
         def watch_chunkservers(children):
             if len(children) > len(self.chunkservers):
-                print
+                print()
                 "New chunkserver(s) detected"
                 # This creates a watch function for each new chunk server, where the
                 # master waits to register until the data(ip address) is updated
@@ -112,13 +112,13 @@ class Watcher:
                         # zoo_ip = self.zookeeper.get(CHUNKSERVER_PATH + chunkserver_num,
                         #                             watch=watch_it)[0]
                         zoo_ip = self.zookeeper.get(CHUNKSERVER_PATH + chunkserver_num)[0]
-                        print
+                        print()
                         'zoo ip ', zoo_ip
 
                         # chunkserver_ip = self.convert_zookeeper_ip(
                         #     self.zookeeper.get(CHUNKSERVER_PATH + chunkserver_num)[0])
                         if not zoo_ip:
-                            print
+                            print()
                             'no ip yet, watching for it'
                             self.zookeeper.exists(CHUNKSERVER_PATH + chunkserver_num,
                                                   watch=watch_it)
@@ -136,10 +136,10 @@ class Watcher:
                     for chunkserver_num in removed_servers:
 
                         if ssh(self.chunkservers[chunkserver_num], SERVER):
-                            print
+                            print()
                             "Another chunkserver to replace %s " % chunkserver_num
                         else:
-                            print
+                            print()
                             'Failed to recover from cs num %s failure' % chunkserver_num
 
                         self._unregister_chunkserver(chunkserver_num)
@@ -175,16 +175,16 @@ class Watcher:
 
     @staticmethod
     def print_exception(context, exception, message=''):
-        print
+        print()
         "Unexpected error in ", context, message
         if exception:
-            print
+            print()
             type(exception).__name__, ': ', exception.args
 
     def get(self):
-        print
+        print()
         self.chunkservers
-        print
+        print()
         self.master_address
 
     @staticmethod
