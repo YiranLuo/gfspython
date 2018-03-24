@@ -2,3 +2,4 @@ apscheduler
 zerorpc
 kazoo
 zmq
+xxhash
