@@ -45,6 +45,18 @@ def get_client():
     from zclient import ZClient
     return ZClient()
 
+
+def print_exception(context, exception, message=''):
+    """
+
+    :param context:
+    :param exception:
+    :param message:
+    """
+    print(f'Unexpected error in {context}: {message}')
+    if exception:
+        print(f'{type(exception).__name__}, : {exception.args}')
+
 # def get_mem(servername):
 # res = os.popen('ssh %s "grep MemFree /proc/meminfo | sed \'s/[^0-9]//g\'"' % servername)
 # return res.read().strip()
