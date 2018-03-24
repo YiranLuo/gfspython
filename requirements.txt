@@ -1,0 +1,5 @@
+apscheduler
+zerorpc
+kazoo
+xxhash
+zmq
