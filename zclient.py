@@ -3,27 +3,30 @@ create, open, close, read, and write operations on files contained by chunkserve
 operations
 
 """
+import logging
+import multiprocessing as mp
 import os
+import random
 import threading
 import time
 import webbrowser
-import random
-import multiprocessing as mp
 
 import zerorpc
 from kazoo.client import KazooClient
 from kazoo.exceptions import NoNodeError
 from kazoo.recipe.lock import LockTimeout
 from zerorpc.exceptions import LostRemote
-import logging
 
 TARGET_CHUNKS = 10
 MIN_CHUNK_SIZE = 1024000
 
 
+# TODO implement custom exceptions for typical crud filesystem behavior
+
 class ZClient:
     """ Zclient class """
-    def __init__(self, zoo_ip='localhost:2181', port=1400):
+
+    def __init__(self, zoo_ip='localhost:2181'):
         logging.basicConfig(filename='log.txt')
         self.logger = logging.getLogger(__name__)
         self.master = zerorpc.Client()
@@ -117,7 +120,6 @@ class ZClient:
             self.master.update_file(filename, chunklist)
         except Exception:
             self.logger.exception(f'Error updating master')
-
 
     def _exists(self, filename):
 
@@ -222,19 +224,21 @@ class ZClient:
                 zclient.connect(chunkserver_ip)
                 # zclient.print_name()
                 chunkserver_clients[chunkserver_num] = zclient
-            except LostRemote as e:
-                self.master.print_exception('Lost remote in client', None)
+            except LostRemote:
+                self.logger.critical('LostRemote exception')
 
         return chunkserver_clients
 
     def list(self):
+        """
+
+        """
         filelist = self.master.list()
         if filelist:
             for filename in filelist:
                 self.logger.info(filename)
         else:
             self.logger.info('No files in the system.')
-
 
     def read(self, filename):  # get metadata, then read chunks direct
         """
@@ -294,7 +298,7 @@ class ZClient:
                             if id_ >= lenchunkloc:
                                 self.logger.error('Failed reading file {filename}')
                                 return None
-
+                # TODO resolve type checker issues when possible by converting to properties
                 data = ''.join(chunks)
                 end = time.time()
                 self.logger.info('Total time reading was %0.2f ms' % ((end - start) * 1000))
@@ -303,7 +307,7 @@ class ZClient:
             except LockTimeout:
                 self.logger.warning('File in use - try again later')
                 return None
-            except Exception as e:
+            except Exception:
                 self.logger.exception(f'Error reading file {filename}')
                 return None
             finally:
@@ -315,6 +319,10 @@ class ZClient:
         return data
 
     def read_gui(self, filename):
+        """
+
+        :param filename:
+        """
         data = self.read(filename)
 
         fdir = '/tmp/gfs/files/'
@@ -510,6 +518,9 @@ class ZClient:
             # print 'Finished reading chunk %s ' % chunkuuid
 
     def dump_metadata(self):
+        """
+
+        """
         self.master.dump_metadata()
 
     # TODO change for variable chunksize
@@ -570,7 +581,16 @@ class ZClient:
                 return False
 
     def deletechunk(self, filename, chunkdetails, len_newdata, len_olddata, chunksize):
-        x = y = 0
+        """
+
+        :param filename:
+        :param chunkdetails:
+        :param len_newdata:
+        :param len_olddata:
+        :param chunksize:
+        :return:
+        """
+        x = 0
         chunkids = []
         for chunkuuid in chunkdetails:
             if x > len_newdata:
@@ -581,7 +601,17 @@ class ZClient:
 
     @staticmethod
     def replacechunk(chunkserver_clients, failed_chunkservers, chunkdetails, data1, data2, chunksize):
-        x = y = 0
+        """
+
+        :param chunkserver_clients:
+        :param failed_chunkservers:
+        :param chunkdetails:
+        :param data1:
+        :param data2:
+        :param chunksize:
+        :return:
+        """
+        y = 0
         # chunkserver_clients = self._establish_connection()  # can be avoided, pass from the edit function
         for x in range(0, len(data1), chunksize):
             if data1[x:x + chunksize] != data2[x:x + chunksize] or len(
@@ -593,8 +623,8 @@ class ZClient:
                     try:
                         chunkserver_clients[i].write(chunkdetails[y]['chunkuid'],
                                                      data2[x:x + chunksize])
-                    except:
-                        pass
+                    except Exception:
+                        pass  # TODO why
 
             y += 1
         return True
@@ -610,6 +640,10 @@ class ZClient:
     #         self._write_chunks(append_chunkuuids, data)
 
     def delete(self, filename):
+        """
+
+        :param filename:
+        """
         if not self._exists(filename):
             raise Exception('append error, file does not exist: ' + filename)
         else:
@@ -631,12 +665,13 @@ class ZClient:
         if not olddata:
             return False  # exit if unable to read details
 
+        # TODO split into multiple try blocks with appropriate-sized scope
         try:
             lock = self.zookeeper.Lock('files/' + filename)
             lock.acquire(timeout=5)
-            chunks = []
-            i = 0
-            chunkuuids = self.master.get_chunkuuids(filename)
+            # chunks = []
+            # i = 0
+            # chunkuuids = self.master.get_chunkuuids(filename)
             # chunkserver_clients = self._establish_connection()
             #
             # for chunkuuid in chunkuuids:
@@ -691,22 +726,23 @@ class ZClient:
             try:
                 for chunkserver in chunkservers:
                     chunkserver.close()
-            except:
+            except Exception:
                 pass
 
         except LockTimeout:
-            print()
-            'File in use - try again later'
+            self.logger.info('File in use - try again later')
             return None
-        except Exception as e:
-            print()
-            'Error editing file %s - try again later' % filename
-            print()
-            type(e).__name__, e.args
+        except Exception:
+            self.logger.exception(f'Unexpected error editing file {filename} - try again later')
         finally:
             lock.release()
 
     def rename(self, filename, newfilename):
+        """
+
+        :param filename:
+        :param newfilename:
+        """
         if self._exists(filename):
             if not self._exists(newfilename):
                 chunkuids = self.master.get_chunkuuids(filename)
@@ -725,8 +761,6 @@ class ZClient:
                     self.master.rename(result, filename, newfilename)
 
             else:
-                print()
-                'read error, file already exist: ' + newfilename
+                self.logger.info(f'File already exists: {newfilename}')
         else:
-            print()
-            'read error, file does not exist: ' + filename
+            self.logger.error(f'read error, file does not exist: {filename}')
