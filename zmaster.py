@@ -15,16 +15,23 @@ import zutils
 CHUNKSERVER_PATH = 'chunkserver/'
 UPDATE_FREQUENCY = 5  # update frequency in seconds
 
+import logging
+
 
 class ZMaster:
+    """
+
+    """
+
     def __init__(self, zoo_ip='localhost:2181', master_port=1400):
+        self.logger = logging.getLogger(__name__)
         self.lock = threading.RLock()  # lock for modifying metadata
         self.num_chunkservers = 0
         self.last_updated = 0  # time since last stats poll
         self.ip = zutils.get_myip() + ':' + str(master_port)
         # self.chunksize = 10
         self.chunkrobin = 0
-        self.versntable = {}  # file version counter
+        self.ver_table = {}  # file version counter
         # self.filetable = {'#garbage_collection#': {'0000000024': [
         #    'abc$%#0$%#27a04c46-9c4f-11e5-92b7-000c29c12a87']}}  # file to chunk mapping
         self.filetable = {'#garbage_collection#': {}}
@@ -47,30 +54,34 @@ class ZMaster:
     def _register_with_zookeeper(self, master_port):
         try:
             self.zookeeper.start()
-            address = "tcp://%s:%s" % (zutils.get_myip(), master_port)
+            address = zutils.get_tcp(port=master_port)
 
             # use ephemeral node for shadow master to subscribe to later
             # self.zookeeper.create('master', ephemeral=True, value=address)
             self.zookeeper.ensure_path('master')
             self.zookeeper.ensure_path('chunkserver')
             self.zookeeper.create('master/0', ephemeral=True)
-            data = '{username}@{tcpip}'.format(username=getpass.getuser(),
-                                               tcpip=address)
-
-            self.zookeeper.set('master', data)
+            self.zookeeper.set('master', f'{getpass.getuser()}@{address}')
 
             # registers chunkserver with master when ip set on zookeeper
             def watch_ip(event):
+                """
+
+                :param event:
+                """
                 path = event.path
                 # chunkserver_ip = self.zookeeper.get(path)[0] ~ changed to username@[tcp:ip]
                 chunkserver_ip = self.zookeeper.get(path)[0].split('@')[-1]
                 chunkserver_num = path[path.rfind('/') + 1:]
-                print()
-                "New IP %s detected in chunknum %s" % (chunkserver_ip, chunkserver_num)
+                self.logger.info(f'New IP {chunkserver_ip} registered as chunkserver number {chunkserver_num}')
                 self._register_chunkserver(chunkserver_num, chunkserver_ip)
 
             @self.zookeeper.ChildrenWatch(CHUNKSERVER_PATH)
             def watch_children(children):
+                """
+
+                :param children:
+                """
                 if len(children) > len(self.chunkservers):
                     print()
                     "New chunkserver(s) detected"
@@ -92,7 +103,7 @@ class ZMaster:
                             else:
                                 self._register_chunkserver(chunkserver_num, chunkserver_ip)
                         except Exception as ex:
-                            self.print_exception('watch children, adding chunkserver', ex)
+                            zutils.print_exception('watch children, adding chunkserver', ex)
 
                 elif len(children) < len(self.chunkservers):
                     self.lock.acquire()
@@ -101,24 +112,26 @@ class ZMaster:
                                            if chunkserver_num not in children]
                         for chunkserver_num in removed_servers:
                             self._unregister_chunkserver(chunkserver_num)
-                            print()
-                            "Chunkserver %s was removed" % chunkserver_num
+                            self.logger.info(f'Chunkserver {chunkserver_num} was removed')
 
                         self.num_chunkservers = len(self.chunkservers)
-                        # print "Now %d chunksrv" % self.num_chunkservers
+                        # print "Now %d chunkserver" % self.num_chunkservers
                         # print "Calling replicate directly"
                         self.replicate()
                     except Exception as ex:
-                        self.print_exception('Removing chunkserver', ex)
+                        zutils.print_exception('Removing chunkserver', ex)
                     finally:
                         self.lock.release()
         except Exception as e:
-            self.print_exception('connecting to zookeeper', e)
+            zutils.print_exception('connecting to zookeeper', e)
             print()
             "Unable to connect to zookeeper - master shutting down"
             sys.exit(2)
 
     def set_chunk(self):
+        """
+
+        """
         self.num_chunkservers = len(self.chunkservers)
 
     def _register_chunkserver(self, chunkserver_num, chunkserver_ip):
@@ -136,18 +149,17 @@ class ZMaster:
             files, chunkloc = c.populate()
             if files:
                 print()
-                'Populating files from server %s' % chunkserver_num
+                self.logger.info(f'Populating files from server {chunkserver_num}')
                 self.populate(files, chunkloc)
 
             self.chunkclients[chunkserver_num] = c
             self.chunkservers[chunkserver_num] = chunkserver_ip
             self.num_chunkservers += 1
-            # self.chunkstats[chunkserver_num] = c.get_stats()
-            print()
-            'Chunksrv #%d registered at %s' % (int(chunkserver_num), chunkserver_ip)
+            # self.chunk_stats[chunkserver_num] = c.get_stats()
+            self.logger.info(f'Chunkserver #{chunkserver_num} registered at {chunkserver_ip}')
             # print 'Number of chunkservers = %d' % self.num_chunkservers
         except Exception as e:
-            self.print_exception('registering chunkserver %s to %s' %
+            zutils.print_exception('registering chunkserver %s to %s' %
                                  (chunkserver_num, chunkserver_ip), e)
         finally:
             self.lock.release()
@@ -158,13 +170,13 @@ class ZMaster:
         del self.chunkservers[chunkserver_num]
         del self.chunkclients[chunkserver_num]
         for filename, chunkid_list in list(self.filetable.items()):
-            for chunkid in chunkid_list:
-                if chunkserver_num in self.chunktable[chunkid]:
+            for chunk_id in chunkid_list:
+                if chunkserver_num in self.chunktable[chunk_id]:
                     print()
-                    "Removing %s from %s " % (chunkserver_num, chunkid)
-                    self.chunktable[chunkid].remove(chunkserver_num)
-                    if not self.chunktable[chunkid]:
-                        self.print_exception("List is empty now, deleting file %s " % filename,
+                    self.logger.info(f'Removing {chunkserver_num} from {chunk_id}')
+                    self.chunktable[chunk_id].remove(chunkserver_num)
+                    if not self.chunktable[chunk_id]:
+                        zutils.print_exception("List is empty now, deleting file %s " % filename,
                                              None)
                         self.delete(filename, '')
                         break  # breaks inner for loop
@@ -172,14 +184,6 @@ class ZMaster:
                         # print "\t Chunktable = ", self.chunktable
                         # print "\t Filetable = ", self.filetable
                         # print "\t Chunkservers = ", self.chunkservers
-
-    @staticmethod
-    def print_exception(context, exception, message=''):
-        print()
-        "Unexpected error in ", context, message
-        if exception:
-            print()
-            type(exception).__name__, ': ', exception.args
 
     def get(self, ivar):
         """
@@ -190,9 +194,14 @@ class ZMaster:
         try:
             return self.__dict__[ivar]
         except KeyError:
-            self.print_exception('key error in get', KeyError)
+            zutils.print_exception('key error in get', KeyError)
 
     def get_chunksize(self, filename):
+        """
+
+        :param filename:
+        :return:
+        """
         return self.chunksize[filename]
 
     def list(self):
@@ -226,6 +235,11 @@ class ZMaster:
 
     # temporary functions
     def exists(self, filename):
+        """
+
+        :param filename:
+        :return:
+        """
         exists = filename in self.filetable
         return exists
         # return True if filename in self.filetable else False
@@ -237,27 +251,52 @@ class ZMaster:
         for client in list(self.chunkclients.values()):
             client.print_name()
 
-    @staticmethod
-    def answer_server(chunknum):
-        print()
-        'Master ack from %d' % chunknum
+    def answer_server(self, chunk_num):
+        """
+        :param chunk_num:
+        """
+        self.logger.info(f'Master ack from {chunk_num}')
 
     def get_chunkloc(self, chunkuuid):
+        """
+
+        :param chunkuuid:
+        :return:
+        """
         return self.chunktable[chunkuuid]
 
     # TODO temporary
     def see_chunkloc(self):
+        """
+
+        :return:
+        """
         return self.chunktable
 
     def get_chunkuuids(self, filename):
+        """
+
+        :param filename:
+        :return:
+        """
         return self.filetable[filename]
 
     def get_last_chunkuuid(self, filename):
+        """
+
+        :param filename:
+        :return:
+        """
         chunkuuid = self.filetable[filename][-1]
         return chunkuuid
 
     # TODO what about same file exists?
     def update_file(self, filename, chunklist):
+        """
+
+        :param filename:
+        :param chunklist:
+        """
         self.lock.acquire()
         try:
             if filename not in self.filetable:
@@ -267,7 +306,7 @@ class ZMaster:
                 self.filetable[filename].append(chunkuuid)
                 self.chunktable[chunkuuid] = chunkloc
         except Exception as e:
-            self.print_exception('updating file', e)
+            zutils.print_exception('updating file', e)
         finally:
             self.lock.release()
 
@@ -281,11 +320,16 @@ class ZMaster:
     ###############################################################################
 
     def updatevrsn(self, filename, flag):
+        # TODO erase this flag by converting to a defaultdict
+        """
+        :param filename:
+        :param flag:
+        """
         if flag == 1:
-            self.versntable[filename] += 1
+            self.ver_table[filename] += 1
         else:
-            self.versntable[filename] = 0
-        # print filename, self.versntable[filename]
+            self.ver_table[filename] = 0
+        self.logger.debug(f'Updated {filename} to version {self.ver_table[filename]}')
 
     def _establish_connection(self, chunkloc):
         """
@@ -298,61 +342,65 @@ class ZMaster:
         if True:
             try:
                 zclient = zerorpc.Client()
-                print()
-                'Server connecting to chunkserver at %s' % chunkservers[chunkloc]
+                self.logger.info(f'Server connecting to chunkserver at {chunkservers[chunkloc]}')
                 zclient.connect(chunkservers[chunkloc])
                 # zclient.print_name()
                 return zclient
-            except:
+            except Exception:
+                self.logger.exception('Could not connect to chunkserver at {chunkservers[chunkloc]}')
                 return False
 
     # TODO delete /tmp/gfs/files/*
     def collect_garbage(self):
+        """
 
+        """
         try:
-            chunklocs = self.filetable["#garbage_collection#"]
-            # print chunklocs, chunklocs.keys(), self.chunkservers.keys()
-            failedservers = list(set(chunklocs.keys()) - set(self.chunkservers.keys()))
-            legitservers = list(set(chunklocs.keys()) - set(failedservers))
-            # print "legit,failed ", legitservers, failedservers
-        except:
-            chunklocs = {}
+            chunk_locs = self.filetable["#garbage_collection#"]
+            # print chunk_locs, chunk_locs.keys(), self.chunkservers.keys()
+            failed_servers = list(set(chunk_locs.keys()) - set(self.chunkservers.keys()))
+            # legit_servers = list(set(chunk_locs.keys()) - set(failed_servers))
+            # print "legit,failed ", legit_servers, failed_servers
+        except Exception:
+            chunk_locs = {}
 
-        if chunklocs:
+        if chunk_locs:
             # print "in garbage"
-            for chunkloc in list(chunklocs.keys()):
+            for chunk_loc in list(chunk_locs.keys()):
                 # connect with each chunkserver if its not a failed server
-                if chunkloc not in failedservers:
-                    chunkserver_clients = self._establish_connection(chunkloc)
+                if chunk_loc not in failed_servers:
+                    chunkserver_clients = self._establish_connection(chunk_loc)
 
                     if chunkserver_clients:
-                        # print "call delchunkfile fn() in chunkserver-"+str(chunkloc)
-                        flag = chunkserver_clients.delete(list(set(chunklocs[chunkloc])))
+                        # print "call delete chunk file fn() in chunkserver-"+str(chunk_loc)
+                        flag = chunkserver_clients.delete(list(set(chunk_locs[chunk_loc])))
                         if flag:
-                            # remove chunkid if present in failedservers
-                            for chunkid in list(set(chunklocs[chunkloc])):
+                            # remove chunk id if present in failed_servers
+                            for chunkid in list(set(chunk_locs[chunk_loc])):
                                 i = 0
-                                while i < len(failedservers):
-                                    if chunkid in chunklocs[failedservers[i]]:
-                                        chunklocs[failedservers[i]].remove(chunkid)
-                                        if not chunklocs[failedservers[i]]:
+                                while i < len(failed_servers):
+                                    if chunkid in chunk_locs[failed_servers[i]]:
+                                        chunk_locs[failed_servers[i]].remove(chunkid)
+                                        if not chunk_locs[failed_servers[i]]:
                                             del self.filetable["#garbage_collection#"][
-                                                failedservers[i]]
-                                            failedservers.remove(failedservers[i])
+                                                failed_servers[i]]
+                                            failed_servers.remove(failed_servers[i])
                                         break
                                     i += 1
 
-                            # print "remove value from garbage collection for "+str(chunkloc)
-                            del self.filetable["#garbage_collection#"][chunkloc]
+                            # print "remove value from garbage collection for "+str(chunk_loc)
+                            del self.filetable["#garbage_collection#"][chunk_loc]
 
                     else:
-                        print()
-                        "Failed to connect to ", chunkloc
+                        self.logger.debug(f'Failed to connect to {chunk_loc}')
         else:
-            print()
-            "nothing to clear in garbage"
+            self.logger.debug(f'Nothing to clear in garbage')
 
     def replicate(self):
+        """
+
+        :return:
+        """
         # print "In replicate"
         self.lock.acquire()
         try:
@@ -369,37 +417,36 @@ class ZMaster:
 
             chunktable = self.chunktable
             chunkserver = {}
-            values = []
             for chunkid, values in list(chunktable.items()):
                 temp = str(values)
                 values = ast.literal_eval(temp)
                 keys_list = list(self.chunkservers.keys())
                 while len(values) < reps:
                     self.chunkrobin = (self.chunkrobin + 1) % self.num_chunkservers
-                    chunkloc = keys_list[self.chunkrobin]
-                    while chunkloc in values:
+                    chunk_loc = keys_list[self.chunkrobin]
+                    while chunk_loc in values:
                         self.chunkrobin = (self.chunkrobin + 1) % self.num_chunkservers
-                        chunkloc = keys_list[self.chunkrobin]
+                        chunk_loc = keys_list[self.chunkrobin]
 
-                    # print "call connection to "+str(chunkloc)+" pass ",chunkid,temp
-                    if chunkloc not in chunkserver:
+                    # print "call connection to "+str(chunk_loc)+" pass ",chunk_id,temp
+                    if chunk_loc not in chunkserver:
                         try:
-                            chunkserver[chunkloc] = self._establish_connection(chunkloc)
+                            chunkserver[chunk_loc] = self._establish_connection(chunk_loc)
                         except Exception as e:
-                            self.print_exception('in replicate', e)
+                            zutils.print_exception('in replicate', e)
 
-                    if chunkserver[chunkloc].copy_chunk(chunkid, temp):
+                    if chunkserver[chunk_loc].copy_chunk(chunkid, temp):
                         # print "Update chunktable"
-                        self.chunktable[chunkid].append(chunkloc)
+                        self.chunktable[chunkid].append(chunk_loc)
 
                     result = {chunkid: temp}
                     try:
-                        replicas[chunkloc].append(result)
-                    except:
-                        replicas[chunkloc] = []
-                        replicas[chunkloc].append(result)
+                        replicas[chunk_loc].append(result)
+                    except Exception:
+                        replicas[chunk_loc] = []
+                        replicas[chunk_loc].append(result)
 
-                    values.append(chunkloc)
+                    values.append(chunk_loc)
 
             if len(replicas) == 0:
                 print()
@@ -409,12 +456,16 @@ class ZMaster:
                 print()
                 "replicated %d items " % len(list(replicas.keys()))
         except Exception as e:
-            self.print_exception('acquiring lock in replicate', e)
+            zutils.print_exception('acquiring lock in replicate', e)
         finally:
             self.lock.release()
 
     def delete(self, filename, chunkuuids):  # rename for later garbage collection
+        """
 
+        :param filename:
+        :param chunkuuids:
+        """
         self.lock.acquire()
         try:
             if chunkuuids == "":
@@ -425,8 +476,8 @@ class ZMaster:
 
             try:
                 if self.filetable[deleted_filename]:
-                    None
-            except:
+                    pass # TODO defaultdict here
+            except Exception:
                 self.filetable[deleted_filename] = {}
                 # self.filetable[deleted_filename]=[]
 
@@ -435,23 +486,24 @@ class ZMaster:
                 for chunkloc in chunklocs:
                     try:
                         self.filetable[deleted_filename][chunkloc].append(chunkid)
-                    except:
+                    except Exception:
                         self.filetable[deleted_filename][chunkloc] = []
                         self.filetable[deleted_filename][chunkloc].append(chunkid)
                 del self.chunktable[chunkid]
 
             # print self.filetable[deleted_filename]
             # self.collect_garbage()
-        except Exception as e:
-            print()
-            "Unexpected error in delete:"
-            print()
-            e.__doc__, e.message
+        except Exception:
+            self.logger.exception('Unexpected error in delete:')
         finally:
             self.lock.release()
 
     def delete_chunks(self, filename, chunk_rm_ids):
+        """
 
+        :param filename:
+        :param chunk_rm_ids:
+        """
         self.lock.acquire()
         try:
             # print filename, chunk_rm_ids
@@ -459,23 +511,43 @@ class ZMaster:
             self.filetable[filename] = [x for x in chunkuuids if x not in chunk_rm_ids]
             self.delete(filename, chunk_rm_ids)
         except Exception as e:
-            self.print_exception('delete_chunks', e)
+            zutils.print_exception('delete_chunks', e)
         finally:
             self.lock.release()
 
     @staticmethod
     def next_chunkloc(keys_list, num_items):
+        """
+
+        :param keys_list:
+        :param num_items:
+        :return:
+        """
         next_chunklocs = random.sample(keys_list, num_items)
         return next_chunklocs
 
     def alloc2(self, filename, num_chunks, chunksize, seq):  # return ordered chunk map to server
+        """
+
+        :param filename:
+        :param num_chunks:
+        :param chunksize:
+        :param seq:
+        :return:
+        """
         chunks = self.alloc2_chunks(num_chunks, filename, seq)
         # self.filetable[filename] = chunks  don't update filetable until writing successful
         self.chunksize[filename] = chunksize
         return chunks
 
     def alloc2_chunks(self, num_chunks, filename, seq):
+        """
 
+        :param num_chunks:
+        :param filename:
+        :param seq:
+        :return:
+        """
         if self.num_chunkservers == 0:
             return None
 
@@ -498,12 +570,27 @@ class ZMaster:
         return chunkuuids
 
     def alloc(self, filename, num_chunks, chunksize, seq):  # return ordered chunk list
+        """
+
+        :param filename:
+        :param num_chunks:
+        :param chunksize:
+        :param seq:
+        :return:
+        """
         chunks = self.alloc_chunks(num_chunks, filename, seq)
         self.filetable[filename] = chunks
         self.chunksize[filename] = chunksize
         return chunks
 
     def alloc_chunks(self, num_chunks, filename, seq):
+        """
+
+        :param num_chunks:
+        :param filename:
+        :param seq:
+        :return:
+        """
         chunkuuids = []
         tseq = seq
         keys_list = list(self.chunkservers.keys())
@@ -517,6 +604,13 @@ class ZMaster:
         return chunkuuids
 
     def alloc_append(self, num_append_chunks, filename, seq):  # append chunks
+        """
+
+        :param num_append_chunks:
+        :param filename:
+        :param seq:
+        :return:
+        """
         chunkuuids = self.filetable[filename]
         tseq = seq
         append_chunkuuids = self.alloc_chunks(num_append_chunks, filename, tseq)
@@ -524,21 +618,25 @@ class ZMaster:
         return append_chunkuuids
 
     def rename(self, result, filename, newfilename):
+        """
+
+        :param result:
+        :param filename:
+        :param newfilename:
+        """
         self.lock.acquire()
         try:
             chunkserver = {}
-            chunkids = []
             flag = True
-            for chunkloc, chunkids in list(result.items()):
+            for chunk_loc, chunk_ids in list(result.items()):
                 try:
-                    chunkserver[chunkloc] = self._establish_connection(chunkloc)
-                except:
-                    print()
-                    "Couldnt connect to chunkserver ", chunkloc
+                    chunkserver[chunk_loc] = self._establish_connection(chunk_loc)
+                except Exception:
+                    self.logger.exception("Couldn't connect to chunkserver #{chunk_loc}")
 
                 flag = True
-                no_keys = len(chunkids)
-                flag = flag and chunkserver[chunkloc].rename(chunkids, filename, newfilename)
+                # no_keys = len(chunk_ids)
+                flag = flag and chunkserver[chunk_loc].rename(chunk_ids, filename, newfilename)
 
             if flag:
                 for chunkid in self.filetable[filename]:
@@ -546,23 +644,23 @@ class ZMaster:
                     self.chunktable[temp] = self.chunktable.pop(chunkid)
                 self.filetable[newfilename] = ast.literal_eval(
                     str(self.filetable.pop(filename)).replace(filename, newfilename))
-                self.versntable[newfilename] = self.versntable.pop(filename)
+                self.ver_table[newfilename] = self.ver_table.pop(filename)
             else:
                 print()
                 "Some error occurred while renaming"
         except Exception as e:
-            self.print_exception('rename', e)
+            zutils.print_exception('rename', e)
         finally:
             self.lock.release()
 
     def dump_metadata(self):
-        print()
-        "Filetable:",
+        """
+
+        """
+        self.logger.info(f'Filetable with {len(self.chunkservers)} chunkservers: \n')
         for filename, chunkuuids in list(self.filetable.items()):
-            print()
-            filename, "with", len(chunkuuids), "chunks"
-        print()
-        "Chunkservers: ", len(self.chunkservers)
+            self.logger.info(f'{filename} with {len(chunkuuids)} chunks')
+
         # TODO fix or remove
         # print "Chunkserver Data:"
         # for chunkuuid, chunkloc in sorted(self.chunktable.iteritems(),
@@ -571,17 +669,24 @@ class ZMaster:
         #    print chunkloc, chunkuuid, chunk
 
     def rm_from_ctable(self, chunkloc):
+        """
+
+        :param chunkloc:
+        """
         self.lock.acquire()
         try:
             for values in self.chunktable.values():
                 values.remove(chunkloc)
         except Exception as e:
-            self.print_exception('rm from ctable', e)
+            zutils.print_exception('rm from ctable', e)
         finally:
             self.lock.release()
 
     def sort_filetable(self, filename):
+        """
 
+        :param filename:
+        """
         self.lock.acquire()
         try:
             temp = []
@@ -595,25 +700,29 @@ class ZMaster:
                 temp.append(temptable[key])
             self.filetable[filename] = temp
         except Exception as e:
-            self.print_exception('sort filetable', e)
+            zutils.print_exception('sort filetable', e)
         finally:
             self.lock.release()
 
     def populate(self, files, chunkloc):
+        """
 
+        :param files:
+        :param chunkloc:
+        """
         self.lock.acquire()
         try:
             # print files, chunkloc, "in master"
-            for filename, chunkids in list(files.items()):
+            for filename, chunk_ids in list(files.items()):
                 if self.exists(filename):
                     print()
                     "operations for merging"
-                    for chunkid in chunkids:
+                    for chunkid in chunk_ids:
                         if chunkid not in self.filetable[filename] and chunkid not in [list(x)[0]
                                                                                        for x in set(
                                 tuple(x) for x in
                                 list(self.filetable['#garbage_collection#'].values()))]:
-                            if True:  # condition to check if hash for chunkids are the same
+                            if True:  # condition to check if hash for chunk_ids are the same
                                 self.filetable[filename].append(chunkid)
                                 self.chunktable[chunkid] = [chunkloc]
                         else:
@@ -623,32 +732,32 @@ class ZMaster:
                             else:
                                 try:
                                     self.filetable['#garbage_collection#'][chunkloc].append(chunkid)
-                                except:
+                                except Exception:
 
                                     self.filetable['#garbage_collection#'][chunkloc] = [chunkid]
                 else:
-                    orig_chunkids = chunkids[:]
-                    chunkids = list(set(chunkids) - set([list(x)[0] for x in set(
+                    orig_chunkids = chunk_ids[:]
+                    chunk_ids = list(set(chunk_ids) - set([list(x)[0] for x in set(
                         tuple(x) for x in list(self.filetable['#garbage_collection#'].values()))]))
-                    # print "chunkids", chunkids
-                    if chunkids:
+                    # print "chunk_ids", chunk_ids
+                    if chunk_ids:
                         print()
-                        "operation for adding", filename
-                        self.filetable[filename] = chunkids
+                        self.logger.debug(f'operation for adding {filename}')
+                        self.filetable[filename] = chunk_ids
                         temp = {}
-                        for chunkid in chunkids:
+                        for chunkid in chunk_ids:
                             temp[chunkid] = [chunkloc]
                         self.chunktable.update(temp)
-                        self.versntable[filename] = 1
+                        self.ver_table[filename] = 1
                         # update chunksize table
                     else:
                         print()
-                        "operation for deleting", list(set(orig_chunkids) - set(chunkids))
+                        "operation for deleting", list(set(orig_chunkids) - set(chunk_ids))
 
-                    for chunkid in list(set(orig_chunkids) - set(chunkids)):
+                    for chunkid in list(set(orig_chunkids) - set(chunk_ids)):
                         try:
                             self.filetable['#garbage_collection#'][chunkloc].append(chunkid)
-                        except:
+                        except Exception:
                             self.filetable['#garbage_collection#'][chunkloc] = [chunkid]
 
                 if self.exists(filename):
@@ -657,6 +766,6 @@ class ZMaster:
                     # print self.filetable
                     # print self.chunktable
         except Exception as e:
-            self.print_exception('populate', e)
+            zutils.print_exception('populate', e)
         finally:
             self.lock.release()
