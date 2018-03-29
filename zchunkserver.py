@@ -1,10 +1,14 @@
+"""
+Module zchunkserver contains the `ZChunkserver` class, which models a GFS chunkserver.  Chunkservers primarily
+communicate metadata with the master server and facilitate transfers directly to clients.
+"""
+
 import ast
 import getpass
 import logging
 import os
-import re
-import subprocess
 import sys
+from collections import defaultdict
 
 import xxhash
 import zerorpc
@@ -16,7 +20,7 @@ import zutils
 
 class ZChunkserver:
     """
-    This is the Chunkserver class
+    ZChunkserver class contains methods to manipulate file chunks and connect with clients and master server.
     """
 
     def __init__(self, zoo_ip='localhost:2181'):
@@ -37,7 +41,6 @@ class ZChunkserver:
             self.logger.critical('No master record in zookeeper')
             raise  # TODO handle shadow master/waiting for master to reconnect later
         except Exception:
-            self.logger.debug(f'Unknown exception, traceback: {sys.exc_info()[2]}')
             self.logger.exception('Unexpected error connecting to master')
 
         # local directory where chunks are stored
@@ -82,7 +85,7 @@ class ZChunkserver:
     # TODO make this an attribute
     def get_master_ip(self):
         """
-
+        Query Zookeeper and return the master's IP address.
         """
         pass
 
@@ -96,82 +99,48 @@ class ZChunkserver:
 
     def write(self, chunkuuid, chunk, forward=None):
         """
-
-        :param chunkuuid:
-        :param chunk:
-        :param forward:
-        :return:
+        Writes the given chunk to file and forwards the chunk to the given chunkserver(s) to replicate if necessary.
+        :param chunkuuid: Unique ID for chunk.
+        :param chunk:  Chunk data.
+        :param forward:  A list of chunkservers to forward the chunk to for replication.
+        :return:  Checksum of chunk written for verification.
         """
+
+        self.write_local(chunkuuid, chunk)
+
+        if forward:
+            self.logger.debug('Forwarding chunk to chunkserver {forward}')
+            self.send_chunk(chunkuuid, str([forward]), chunk)
+
+        return xxhash.xxh64(chunk).digest()
+
+    def write_local(self, chunkuuid, chunk):
+        """ Writes the given chunk to local disk and updates metadata if successful """
+
         local_filename = self.chunk_filename(chunkuuid)
         try:
             with open(local_filename, "wb") as f:
                 f.write(chunk)
-                self.chunktable[chunkuuid] = local_filename
-        except:
+        except EnvironmentError:
+            self.logger.exception(f'Could not write chunk with id {chunkuuid}')
             return False
+        else:
+            self.chunktable[chunkuuid] = local_filename
+            return True
 
-        # print "forward is ", forward
-        if forward:
-            self.logger.info('Forwarding chunk to chunkserver {forward}')
-            self.send_chunk(chunkuuid, str([forward]), chunk)
-        return xxhash.xxh64(chunk).digest()
-
-    def close(self):
-        """
-
-        """
+    def close_master(self):
+        """ Close the connection to master server.  """
         self.master.close()
 
     @staticmethod
     def get_stats():
-        """
+        """ Returns network traffic and storage stats for this chunkserver. """
 
-        :return:
-        """
-        results = []
-        pattern = r' \d+[\.]?\d*'
-        first = ['ifstat', '-q', '-i', 'enP0s3', '-S', '0.2', '1']  # get network traffic
-        second = ['df', '/']  # get free space
-        p1 = subprocess.Popen(first, stdout=subprocess.PIPE)
-        p2 = subprocess.Popen(second, stdout=subprocess.PIPE)
-
-        # get transfer speed and parse results
-        transfer_speed = p1.communicate()[0]
-        transfer_speed = re.findall(pattern, transfer_speed)
-        results.append(sum([float(num) for num in transfer_speed]))
-
-        # get storage info and parse results
-        storage = p2.communicate()[0]
-        storage = re.findall(r'\d+%', storage)  # find entry with %
-        results.append(int(storage[0][:-1]))  # append entry without %
-
-        return results
-
-    ##############################################################################
-
-    def rwrite(self, chunkuuid, chunk):
-        """
-
-        :param chunkuuid:
-        :param chunk:
-        :return:
-        """
-        local_filename = self.chunk_filename(chunkuuid)
-        try:
-            with open(local_filename, "wb") as f:
-                f.write(chunk)
-            self.chunktable[chunkuuid] = local_filename
-            return True
-        except:
-            return False
+        return zutils.get_stats()
 
     def read(self, chunkuuid):
-        """
+        """ Reads chunk from file and returns the contents """
 
-        :param chunkuuid:
-        :return:
-        """
-        # data = None
         local_filename = self.chunk_filename(chunkuuid)
         with open(local_filename, "rb") as f:
             data = f.read()
@@ -182,83 +151,73 @@ class ZChunkserver:
         zclient = zerorpc.Client()
         self.logger.info(f'Server connecting to chunkserver at {chunkloc}')
         zclient.connect(chunkservers[chunkloc])
-        # zclient.print_name()
         return zclient
 
     def delete(self, chunkuuids):
+        """ Remove each chunk from disk given a list of chunkuuids.  Called by garbage collection
+        :param chunkuuids: A list of chunkuuid to delete from disk
         """
 
-        :param chunkuuids:
-        :return:
-        """
-        for chunkid in chunkuuids:
-            filename = self.chunk_filename(chunkid)
+        for filename in map(self.chunk_filename, chunkuuids):
             try:
-                if os.path.exists(filename):
-                    self.logger.info(f'Removing {filename}')
-                    os.remove(filename)
-                    return True
-            except Exception:
-                self.logger.exception('Error deleting file')
-
-    def disp(self, a):
-        """
-        :param a:
-        """
-        # TODO what does this do
-        self.logger.info(f'{str(a)}{str(self.chunkloc)}')
+                self.logger.info(f'Removing {filename}')
+                os.remove(filename)
+            except EnvironmentError:
+                self.logger.exception(f'Error deleting file with name {filename}')
 
     def chunk_filename(self, chunkuuid):
+        """ Maps a universally unique ID to a local filename for a specific chunk.
+        :param chunkuuid: Universally unique id for the given chunk
+        :return: Local unique filename.
         """
-
-        :param chunkuuid:
-        :return:
-        """
-        local_filename = self.local_filesystem_root + "/" + str(chunkuuid) + '.gfs'
+        local_filename = f'{self.local_filesystem_root}/{chunkuuid}.gfs'
         return local_filename
 
     def copy_chunk(self, chunk_id, chunklocs):
         """
-
-        :param chunk_id:
-        :param chunklocs:
-        :return:
+        Copy a chunk with the given chunk_id to the local filesystem.  Copy_chunk queries each chunkserver in
+        chunklocs until the transfer is successful or there are no remaining servers to contact.
+        :param chunk_id: UUID of the chunk to copy
+        :param chunklocs: A list of chunkservers that service this chunk
+        :return: True if transfer was successful or false otherwise.
         """
+
+        # TODO why is this literal_eval?
         chunklocs = ast.literal_eval(chunklocs)
         flag = False
         for chunkloc in chunklocs:
             try:
                 chunkserver = self._establish_connection(chunkloc)
-                # TODO md5 check
                 data = chunkserver.read(chunk_id)
-                flag = self.rwrite(chunk_id, data)
+                flag = self.write_local(chunk_id, data)
                 if flag:
                     break
-            except Exception:
+            except EnvironmentError:
                 flag = False
                 self.logger.exception('some error happened in copy_chunk')
+        else:
+            self.logger.error(f'No chunkservers available to copy chunk {chunk_id}')
 
         return flag
 
     def send_chunk(self, chunk_id, chunklocs, data):
-        """
-
-        :param chunk_id:
-        :param chunklocs:
-        :param data:
-        :return:
+        """ Sends chunk data to a list of chunkservers
+        :param chunk_id: UUID of the given chunk
+        :param chunklocs:  List of chunkservers to replicate the chunk to.
+        :param data:  Chunk data
+        :return:  True if successful or false otherwise.
         """
         chunklocs = ast.literal_eval(chunklocs)
         flag = False
         for chunkloc in chunklocs:
             try:
                 chunkserver = self._establish_connection(chunkloc)
-                flag = chunkserver.rwrite(chunk_id, data)
+                flag = chunkserver.write_local(chunk_id, data)
                 if flag:
                     break
-            except Exception as e:
+            except EnvironmentError:
                 flag = False
-                self.master.print_exception('sending chunk', None, type(e).__name__)
+                self.logger.exception(f'Error sending {chunk_id} to {chunkserver}')
 
         return flag
 
@@ -286,15 +245,15 @@ class ZChunkserver:
 
     def populate(self):
         """
-
-        :return:
+        Populate metadata from local contents and send to master
+        :return: A tuple containing filetable and chunkloc of chunkserver.
         """
         # print "in populate, chunkloc=", self.chunkloc
         local_dir = self.chunk_filename("").replace(".gfs", "")
         # print "local dir is ", local_dir
         file_list = os.listdir(local_dir)
         if len(file_list) != 0:
-            files = {}
+            files = defaultdict(list)
             for items in file_list:
                 # TODO
                 # if master.exists
@@ -304,16 +263,11 @@ class ZChunkserver:
                 items = items.replace(".gfs", "")
                 filename = items.split("$%#")[0]
                 self.chunktable[items] = self.chunk_filename(items)
-                try:
-                    files[filename].append(items)
-                except:
-                    files[filename] = []
-                    files[filename].append(items)
+                files[filename].append(items)
 
             # print "files=%s, chunkloc=%s" % (files, self.chunkloc)
             # self.master.populate(files, str(self.chunkloc))
             return files, self.chunkloc
         else:
-            print()
-            "nothing to populate"
+            self.logger.debug('nothing to populate')
             return None, None
