@@ -10,7 +10,9 @@ import random
 import threading
 import time
 import webbrowser
+from collections import defaultdict
 
+import xxhash
 import zerorpc
 from kazoo.client import KazooClient
 from kazoo.exceptions import NoNodeError
@@ -122,13 +124,10 @@ class ZClient:
             self.logger.exception(f'Error updating master')
 
     def _exists(self, filename):
-
+        """ Waits for a response from the master server """
         response = None
         while response is None:
-            try:
-                response = self.master.exists(filename)
-            except:
-                pass
+            response = self.master.exists(filename)
 
         return response
 
@@ -230,17 +229,12 @@ class ZClient:
         return chunkserver_clients
 
     def list(self):
-        """
+        """ List all files in the file system """
+        filelist = self.master.list() or ('No files in the system',)
+        for filename in filelist:
+            print(filename)
 
-        """
-        filelist = self.master.list()
-        if filelist:
-            for filename in filelist:
-                self.logger.info(filename)
-        else:
-            self.logger.info('No files in the system.')
-
-    def read(self, filename):  # get metadata, then read chunks direct
+    def read(self, filename):  # get metadata, then read chunks directly
         """
         Connects to each chunkserver and reads the chunks in order, then
         assembles the file by reducing
@@ -290,8 +284,8 @@ class ZClient:
                             jobs.append(thread)
                             thread.start()
                             flag = True
-                        except:
-                            self.logger.error(f'Failed to connect to loc {id_}')
+                        except Exception:
+                            self.logger.exception(f'Failed to connect to loc {id_}')
                             failed_chunkservers.append(next_chunkloc)
                             flag = False
                             id_ += 1
@@ -351,10 +345,9 @@ class ZClient:
             print()
             self.master.get_chunkuuids(filename)
         else:
+            lock = self.zookeeper.Lock('files/' + filename)
+            lock.acquire(timeout=5)
             try:
-                lock = self.zookeeper.Lock('files/' + filename)
-                lock.acquire(timeout=5)
-
                 # chunks = []
                 jobs = []
                 chunkuuids = self.master.get_chunkuuids(filename)
@@ -384,15 +377,13 @@ class ZClient:
                                                                         i))
                             jobs.append(result)
                             flag = True
-                        except:
-                            print()
-                            'Failed to connect to loc %d' % id_
+                        except Exception:
+                            self.logger.exception(f'Failed to connect to loc {id_:d}')
                             failed_chunkservers.append(chunkloc[id_])
                             flag = False
                             id_ += 1
                             if id_ >= lenchunkloc:
-                                print()
-                                'Error reading file %s' % filename
+                                print(f'Error reading file {filename}')
                                 return None
 
                 # block until all threads are done before reducing chunks
@@ -404,12 +395,10 @@ class ZClient:
                 # print chunkdetails
 
             except LockTimeout:
-                print()
-                'File in use - try again later'
+                self.logger.info('File in use - try again later')
                 return None
-            except:
-                print()
-                'Error reading file %s' % filename
+            except Exception:
+                self.logger.exception(f'Error reading file {filename}')
                 raise
             finally:
                 lock.release()
@@ -462,15 +451,13 @@ class ZClient:
                             jobs.append(thread)
                             thread.start()
                             flag = True
-                        except:
-                            print()
-                            'Failed to connect to loc %d' % id_
+                        except Exception:
+                            self.logger.exception(f'Failed to connect to loc {id_:d}')
                             failed_chunkservers.append(chunkloc[id_])
                             flag = False
                             id_ += 1
                             if id_ >= lenchunkloc:
-                                print()
-                                'Error reading file %s' % filename
+                                self.logger.exception(f'Error reading file {filename}')
                                 return None
 
                 # block until all threads are done before reducing chunks
@@ -482,12 +469,10 @@ class ZClient:
                 # print chunkdetails
 
             except LockTimeout:
-                print()
-                'File in use - try again later'
+                self.logger.info('File in use - try again later')
                 return None
-            except:
-                print()
-                'Error reading file %s' % filename
+            except Exception:
+                self.logger.exception(f'Error reading file {filename}')
                 raise
             finally:
                 lock.release()
@@ -518,9 +503,7 @@ class ZClient:
             # print 'Finished reading chunk %s ' % chunkuuid
 
     def dump_metadata(self):
-        """
-
-        """
+        """ Dump all metadata contained in master for debugging purposes """
         self.master.dump_metadata()
 
     # TODO change for variable chunksize
@@ -746,17 +729,13 @@ class ZClient:
         if self._exists(filename):
             if not self._exists(newfilename):
                 chunkuids = self.master.get_chunkuuids(filename)
-                result = {}
+                result = defaultdict(list)
                 for chunkuid in chunkuids:
                     # maybe use subprocess to execute the download process in parallel
                     # may throw error if chunkserver dies off in between
                     chunklocs = self.master.get_chunkloc(chunkuid)
                     for chunkloc in chunklocs:
-                        try:
-                            result[chunkloc].append(chunkuid)
-                        except:
-                            result[chunkloc] = []
-                            result[chunkloc].append(chunkuid)
+                        result[chunkloc].append(chunkuid)
 
                     self.master.rename(result, filename, newfilename)
 
