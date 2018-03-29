@@ -74,8 +74,7 @@ class Watcher:
 
         @self.zookeeper.ChildrenWatch(MASTER_PATH)
         def watch_master():
-            """
-            """
+            """ Watch ephemeral Zookeeper node at `MASTER_PATH` and attempt to restart if failure detected """
             children = self.zookeeper.get_children('master')
             if children:
                 self.master_address = self.convert_zookeeper_ip(self.zookeeper.get('master')[0])
@@ -109,15 +108,14 @@ class Watcher:
                         # chunkserver_ip = self.convert_zookeeper_ip(
                         #     self.zookeeper.get(CHUNKSERVER_PATH + chunkserver_num)[0])
                         if not zoo_ip:
-                            print()
                             self.logger.info('zoo_ip not ready, watching for it.')
                             self.zookeeper.exists(CHUNKSERVER_PATH + chunkserver_num,
                                                   watch=watch_it)
                         else:
                             chunkserver_ip = self.convert_zookeeper_ip(zoo_ip)
                             self._register_chunkserver(chunkserver_num, chunkserver_ip)
-                    except Exception as ex:
-                        zutils.print_exception('watch children, adding chunkserver', ex)
+                    except Exception:
+                        self.logger.exception('Error adding chunkserver')
 
             elif len(children) < len(self.chunkservers):
 
@@ -132,35 +130,20 @@ class Watcher:
                             self.logger.critical(f'Failed to recover from chunkserver #{chunkserver_num} failure')
                             self._unregister_chunkserver(chunkserver_num)
 
-                except Exception as ex:
-                    zutils.print_exception('Removing chunkserver', ex)
-                finally:
-                    # TODO why is this here
-                    pass
+                except Exception:
+                    self.logger.exception('Error removing chunkserver')
 
     def _register_chunkserver(self, chunkserver_num, chunkserver_ip):
-        """
-        Adds chunkserver IP to chunkserver table
-        :param chunkserver_num:
-        :param chunkserver_ip:
-        """
+        """ Adds chunkserver IP and num to chunkserver table """
 
-        self.lock.acquire()
-        try:
+        with self.lock.acquire():
             self.chunkservers[chunkserver_num] = chunkserver_ip
-        except Exception as e:
-            zutils.print_exception('register chunkserver', e)
-        finally:
-            self.lock.release()
 
     def _unregister_chunkserver(self, chunkserver_num):
-        self.lock.acquire()
-        try:
+        """ Deletes chunkserver from table """
+
+        with self.lock.acquire():
             del self.chunkservers[chunkserver_num]
-        except Exception as e:
-            zutils.print_exception('unregister chunkserver', e)
-        finally:
-            self.lock.release()
 
     def ssh(self, target, command):
         """ TODO fix this hacky stuff
@@ -183,17 +166,13 @@ class Watcher:
             return True
 
     def print_metadata(self):
-        """ metadata associated with the watcher instance.
-        """
+        """ metadata associated with the watcher instance. """
         self.logger.info(f'Chunkservers: {self.chunkservers}\nmaster address: {self.master_address}')
 
     @staticmethod
     def convert_zookeeper_ip(data):
-        """
+        """ Reads IP data stored in zookeeper and converts to a usable format. """
 
-        :param data:
-        :return:
-        """
         data = data.replace('tcp://', '')
         data = data[:data.rfind(':')]
 
