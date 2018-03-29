@@ -1,7 +1,12 @@
+"""
+zmaster contains the master server, which monitors Zookeeper and is the central repository of metadata.  Monitors
+ephemeral nodes in Zookeeper to detect chunkservers joining/leaving and registers them appropriately.  New
+chunkservers are polled for their metadata and given a list of chunks to replicate if necessary.
+"""
 import ast
 import getpass
+import logging
 import random
-import sys
 import threading
 import time
 import uuid
@@ -15,12 +20,11 @@ import zutils
 CHUNKSERVER_PATH = 'chunkserver/'
 UPDATE_FREQUENCY = 5  # update frequency in seconds
 
-import logging
-
 
 class ZMaster:
-    """
-
+    """ The main master class which implements methods for monitoring the filesystem, updating metadata,
+    communicating with chunkserver and clients.  The master does not directly transfer chunk data but instructs
+    clients which chunkservers to contact directly to receive a given file.
     """
 
     def __init__(self, zoo_ip='localhost:2181', master_port=1400):
@@ -51,6 +55,7 @@ class ZMaster:
         scheduler.add_job(self.replicate, 'interval', minutes=5)
         scheduler.start()
 
+    # TODO refactor into smaller pieces
     def _register_with_zookeeper(self, master_port):
         try:
             self.zookeeper.start()
@@ -63,12 +68,11 @@ class ZMaster:
             self.zookeeper.create('master/0', ephemeral=True)
             self.zookeeper.set('master', f'{getpass.getuser()}@{address}')
 
-            # registers chunkserver with master when ip set on zookeeper
             def watch_ip(event):
+                """ Registers chunkserver with master when ip data is set on zookeeper
+                :param event: Data event changing on Zookeeper which triggers this function
                 """
 
-                :param event:
-                """
                 path = event.path
                 # chunkserver_ip = self.zookeeper.get(path)[0] ~ changed to username@[tcp:ip]
                 chunkserver_ip = self.zookeeper.get(path)[0].split('@')[-1]
@@ -78,13 +82,12 @@ class ZMaster:
 
             @self.zookeeper.ChildrenWatch(CHUNKSERVER_PATH)
             def watch_children(children):
-                """
-
-                :param children:
+                """ Watches nodes for chunkservers entering/leaving, and calls watch_children each time it changes.
+                :param children:  The number of chunkservers registered with Zookeeper
                 """
                 if len(children) > len(self.chunkservers):
-                    print()
-                    "New chunkserver(s) detected"
+                    self.logger.info('New chunkserver(s) detected')
+
                     # This creates a watch function for each new chunk server, where the
                     # master waits to register until the data(ip address) is updated
                     new_chunkservers = [chunkserver_num for chunkserver_num in children
@@ -106,33 +109,30 @@ class ZMaster:
                             zutils.print_exception('watch children, adding chunkserver', ex)
 
                 elif len(children) < len(self.chunkservers):
-                    self.lock.acquire()
-                    try:
+                    with self.lock.acquire():
                         removed_servers = [chunkserver_num for chunkserver_num in self.chunkservers
                                            if chunkserver_num not in children]
                         for chunkserver_num in removed_servers:
-                            self._unregister_chunkserver(chunkserver_num)
-                            self.logger.info(f'Chunkserver {chunkserver_num} was removed')
+                            try:
+                                self._unregister_chunkserver(chunkserver_num)
+                            except Exception:
+                                self.logger.exception(f'Error unregistering removed chunkserver')
+                            else:
+                                self.logger.info(f'Chunkserver {chunkserver_num} was removed')
 
+                            # TODO make this a property
                         self.num_chunkservers = len(self.chunkservers)
-                        # print "Now %d chunkserver" % self.num_chunkservers
-                        # print "Calling replicate directly"
+                        # Replicate chunks to remaining servers
                         self.replicate()
-                    except Exception as ex:
-                        zutils.print_exception('Removing chunkserver', ex)
-                    finally:
-                        self.lock.release()
-        except Exception as e:
-            zutils.print_exception('connecting to zookeeper', e)
-            print()
-            "Unable to connect to zookeeper - master shutting down"
-            sys.exit(2)
 
-    def set_chunk(self):
-        """
+        except Exception:
+            self.logger.exception('Unable to connect to zookeeper - master shutting down')
+            raise SystemExit('Cannot connect to Zookeeper')
 
-        """
-        self.num_chunkservers = len(self.chunkservers)
+    # def set_chunk(self):
+    #     """ Sets the number of chunkservers. """
+    #     # TODO find where this is used and why
+    #     self.num_chunkservers = len(self.chunkservers)
 
     def _register_chunkserver(self, chunkserver_num, chunkserver_ip):
         """
@@ -160,7 +160,7 @@ class ZMaster:
             # print 'Number of chunkservers = %d' % self.num_chunkservers
         except Exception as e:
             zutils.print_exception('registering chunkserver %s to %s' %
-                                 (chunkserver_num, chunkserver_ip), e)
+                                   (chunkserver_num, chunkserver_ip), e)
         finally:
             self.lock.release()
 
@@ -177,7 +177,7 @@ class ZMaster:
                     self.chunktable[chunk_id].remove(chunkserver_num)
                     if not self.chunktable[chunk_id]:
                         zutils.print_exception("List is empty now, deleting file %s " % filename,
-                                             None)
+                                               None)
                         self.delete(filename, '')
                         break  # breaks inner for loop
 
@@ -235,14 +235,9 @@ class ZMaster:
 
     # temporary functions
     def exists(self, filename):
-        """
-
-        :param filename:
-        :return:
-        """
+        """ Returns true if filename is in the filetable.  """
         exists = filename in self.filetable
         return exists
-        # return True if filename in self.filetable else False
 
     def call_servers(self):
         """
@@ -352,8 +347,8 @@ class ZMaster:
 
     # TODO delete /tmp/gfs/files/*
     def collect_garbage(self):
-        """
-
+        """ Deletes all files marked for garbage collection.  This is run by a scheduler every few minutes based on
+        configuration
         """
         try:
             chunk_locs = self.filetable["#garbage_collection#"]
@@ -476,7 +471,7 @@ class ZMaster:
 
             try:
                 if self.filetable[deleted_filename]:
-                    pass # TODO defaultdict here
+                    pass  # TODO defaultdict here
             except Exception:
                 self.filetable[deleted_filename] = {}
                 # self.filetable[deleted_filename]=[]
@@ -654,9 +649,7 @@ class ZMaster:
             self.lock.release()
 
     def dump_metadata(self):
-        """
-
-        """
+        """ Dump metadata for debugging purposes. """
         self.logger.info(f'Filetable with {len(self.chunkservers)} chunkservers: \n')
         for filename, chunkuuids in list(self.filetable.items()):
             self.logger.info(f'{filename} with {len(chunkuuids)} chunks')
@@ -699,8 +692,8 @@ class ZMaster:
             for key in keys:
                 temp.append(temptable[key])
             self.filetable[filename] = temp
-        except Exception as e:
-            zutils.print_exception('sort filetable', e)
+        except Exception:
+            self.logger.exception('Could not sort filetable')
         finally:
             self.lock.release()
 

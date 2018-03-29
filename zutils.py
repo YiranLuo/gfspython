@@ -2,6 +2,7 @@
 of test objects like zookeeper client, regular client"""
 
 import logging
+import subprocess
 
 
 def get_myip():
@@ -46,16 +47,27 @@ def get_client():
     return ZClient()
 
 
-def print_exception(context, exception, message=''):
-    """
+def get_stats():
+    """ Returns network traffic and storage stats for this chunkserver. """
+    # TODO interface enP0s3 is not guaranteed, this should not be hard coded.
+    results = []
+    pattern = r' \d+[\.]?\d*'
+    first = ['ifstat', '-q', '-i', 'enP0s3', '-S', '0.2', '1']  # get network traffic
+    second = ['df', '/']  # get free space
+    p1 = subprocess.Popen(first, stdout=subprocess.PIPE)
+    p2 = subprocess.Popen(second, stdout=subprocess.PIPE)
 
-    :param context:
-    :param exception:
-    :param message:
-    """
-    print(f'Unexpected error in {context}: {message}')
-    if exception:
-        print(f'{type(exception).__name__}, : {exception.args}')
+    # get transfer speed and parse results
+    transfer_speed = p1.communicate()[0]
+    transfer_speed = re.findall(pattern, transfer_speed)
+    results.append(sum([float(num) for num in transfer_speed]))
+
+    # get storage info and parse results
+    storage = p2.communicate()[0]
+    storage = re.findall(r'\d+%', storage)  # find entry with %
+    results.append(int(storage[0][:-1]))  # append entry without %
+
+    return results
 
 # def get_mem(servername):
 # res = os.popen('ssh %s "grep MemFree /proc/meminfo | sed \'s/[^0-9]//g\'"' % servername)
