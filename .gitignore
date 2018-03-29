@@ -1,6 +1,7 @@
-*.pyc
 zoo*
 *test*
-venv/*
-.idea/*
 *.bak
+.idea/
+__pycache__/
+venv/
+
