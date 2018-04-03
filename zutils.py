@@ -2,6 +2,7 @@
 of test objects like zookeeper client, regular client"""
 
 import logging
+import re
 import subprocess
 
 

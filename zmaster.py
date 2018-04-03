@@ -105,8 +105,8 @@ class ZMaster:
                                                       watch=watch_ip)
                             else:
                                 self._register_chunkserver(chunkserver_num, chunkserver_ip)
-                        except Exception as ex:
-                            zutils.print_exception('watch children, adding chunkserver', ex)
+                        except Exception:
+                            self.logger.exception('Error adding chunkserver')
 
                 elif len(children) < len(self.chunkservers):
                     with self.lock.acquire():
@@ -158,9 +158,8 @@ class ZMaster:
             # self.chunk_stats[chunkserver_num] = c.get_stats()
             self.logger.info(f'Chunkserver #{chunkserver_num} registered at {chunkserver_ip}')
             # print 'Number of chunkservers = %d' % self.num_chunkservers
-        except Exception as e:
-            zutils.print_exception('registering chunkserver %s to %s' %
-                                   (chunkserver_num, chunkserver_ip), e)
+        except Exception:
+            self.logger.exception(f'Error registering chunkserver {chunkserver_num}to {chunkserver_ip}')
         finally:
             self.lock.release()
 
@@ -176,8 +175,7 @@ class ZMaster:
                     self.logger.info(f'Removing {chunkserver_num} from {chunk_id}')
                     self.chunktable[chunk_id].remove(chunkserver_num)
                     if not self.chunktable[chunk_id]:
-                        zutils.print_exception("List is empty now, deleting file %s " % filename,
-                                               None)
+                        self.logger.exception(f'List is empty now, deleting file {filename}')
                         self.delete(filename, '')
                         break  # breaks inner for loop
 
@@ -194,7 +192,7 @@ class ZMaster:
         try:
             return self.__dict__[ivar]
         except KeyError:
-            zutils.print_exception('key error in get', KeyError)
+            self.logger.exception('Error getting key')
 
     def get_chunksize(self, filename):
         """
@@ -300,8 +298,8 @@ class ZMaster:
             for chunkuuid, chunkloc in chunklist:
                 self.filetable[filename].append(chunkuuid)
                 self.chunktable[chunkuuid] = chunkloc
-        except Exception as e:
-            zutils.print_exception('updating file', e)
+        except Exception:
+            self.logger.exception(f'could not update file')
         finally:
             self.lock.release()
 
@@ -427,8 +425,8 @@ class ZMaster:
                     if chunk_loc not in chunkserver:
                         try:
                             chunkserver[chunk_loc] = self._establish_connection(chunk_loc)
-                        except Exception as e:
-                            zutils.print_exception('in replicate', e)
+                        except Exception:
+                            self.logger.exception('Error connecting to chunkserver in replicate')
 
                     if chunkserver[chunk_loc].copy_chunk(chunkid, temp):
                         # print "Update chunktable"
@@ -450,8 +448,8 @@ class ZMaster:
                 # print "replica: ", replicas
                 print()
                 "replicated %d items " % len(list(replicas.keys()))
-        except Exception as e:
-            zutils.print_exception('acquiring lock in replicate', e)
+        except Exception:
+            self.logger.exception('Error in replicate')
         finally:
             self.lock.release()
 
@@ -505,8 +503,8 @@ class ZMaster:
             chunkuuids = self.filetable[filename]
             self.filetable[filename] = [x for x in chunkuuids if x not in chunk_rm_ids]
             self.delete(filename, chunk_rm_ids)
-        except Exception as e:
-            zutils.print_exception('delete_chunks', e)
+        except Exception:
+            self.logger.exception(f'could not delete chunks {chunk_rm_ids} from {filename}')
         finally:
             self.lock.release()
 
@@ -640,11 +638,8 @@ class ZMaster:
                 self.filetable[newfilename] = ast.literal_eval(
                     str(self.filetable.pop(filename)).replace(filename, newfilename))
                 self.ver_table[newfilename] = self.ver_table.pop(filename)
-            else:
-                print()
-                "Some error occurred while renaming"
-        except Exception as e:
-            zutils.print_exception('rename', e)
+        except Exception:
+            self.logger.exception('Error while renaming')
         finally:
             self.lock.release()
 
@@ -670,8 +665,8 @@ class ZMaster:
         try:
             for values in self.chunktable.values():
                 values.remove(chunkloc)
-        except Exception as e:
-            zutils.print_exception('rm from ctable', e)
+        except Exception:
+            self.logger.exception('Error removing from chunktable')
         finally:
             self.lock.release()
 
@@ -758,7 +753,7 @@ class ZMaster:
 
                     # print self.filetable
                     # print self.chunktable
-        except Exception as e:
-            zutils.print_exception('populate', e)
+        except Exception:
+            self.logger.exception('error in populate:')
         finally:
             self.lock.release()

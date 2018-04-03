@@ -5,11 +5,9 @@ operations
 """
 import logging
 import multiprocessing as mp
-import os
 import random
 import threading
 import time
-import webbrowser
 from collections import defaultdict
 
 import xxhash
@@ -56,7 +54,6 @@ class ZClient:
             self.zookeeper.start()
             master_ip = self.zookeeper.get('master')[0].split('@')[-1]
         except NoNodeError:
-            print()
             self.logger.exception('No master record in zookeeper')
             raise  # TODO handle shadow master/waiting for master to reconnect later
         except Exception:
@@ -259,14 +256,14 @@ class ZClient:
                 chunktable = self.master.get_file_chunks(filename)
                 chunkserver_nums = set(num for numlist in list(chunktable.values()) for num in numlist)
                 # result = set(x for l in v for x in l)
-                chunks = [None] * len(chunkuuids)
+                chunks = [''] * len(chunkuuids)
                 chunkserver_clients = self._establish_connection(chunkserver_nums)
                 jobs = []
                 failed_chunkservers = []
                 for i, chunkuuid in enumerate(chunkuuids):
-                    flag = False
+                    finished = False
                     id_ = 0
-                    while flag is not True:
+                    while not finished:
                         try:
                             chunklocs = [c_loc for c_loc in chunktable[chunkuuid] if c_loc not in failed_chunkservers]
                             lenchunkloc = len(chunklocs)
@@ -283,11 +280,11 @@ class ZClient:
                                                   chunks, i))
                             jobs.append(thread)
                             thread.start()
-                            flag = True
+                            finished = True
                         except Exception:
                             self.logger.exception(f'Failed to connect to loc {id_}')
                             failed_chunkservers.append(next_chunkloc)
-                            flag = False
+                            finished = False
                             id_ += 1
                             if id_ >= lenchunkloc:
                                 self.logger.error('Failed reading file {filename}')
@@ -312,24 +309,6 @@ class ZClient:
 
         return data
 
-    def read_gui(self, filename):
-        """
-
-        :param filename:
-        """
-        data = self.read(filename)
-
-        fdir = '/tmp/gfs/files/'
-        if not os.access(fdir, os.W_OK):
-            os.makedirs(fdir)
-        fn = os.path.abspath('/tmp/gfs/files/' + filename)
-        f = open(fn, 'wb')
-        f.write(data)
-        f.flush()
-        os.fsync(f.fileno())  # ensure data is on disk, f.close() does not ensure fsync itself
-        f.close()
-        webbrowser.open(fn)
-
     def read_mp(self, filename):
         """
         Connects to each chunkserver and reads the chunks in order, then
@@ -353,7 +332,7 @@ class ZClient:
                 chunkuuids = self.master.get_chunkuuids(filename)
                 chunkdetails = []
                 chunktable = self.master.get_file_chunks(filename)
-                chunks = [None] * len(chunkuuids)
+                chunks = [''] * len(chunkuuids)
                 chunkserver_clients = self._establish_connection()
                 failed_chunkservers = []
                 eval(input('Enter'))
@@ -430,7 +409,7 @@ class ZClient:
                 chunkuuids = self.master.get_chunkuuids(filename)
                 chunkdetails = []
                 chunktable = self.master.get_file_chunks(filename)
-                chunks = [None] * len(chunkuuids)
+                chunks = [''] * len(chunkuuids)
                 chunkserver_clients = self._establish_connection()
                 # raw_input('Enter')
                 for i, chunkuuid in enumerate(chunkuuids):
@@ -565,7 +544,7 @@ class ZClient:
 
     def deletechunk(self, filename, chunkdetails, len_newdata, len_olddata, chunksize):
         """
-
+        Delete chunk from the filetable
         :param filename:
         :param chunkdetails:
         :param len_newdata:
@@ -585,7 +564,7 @@ class ZClient:
     @staticmethod
     def replacechunk(chunkserver_clients, failed_chunkservers, chunkdetails, data1, data2, chunksize):
         """
-
+        Replace data in the given chunk and propagate edits to all chunkservers holding that chunk
         :param chunkserver_clients:
         :param failed_chunkservers:
         :param chunkdetails:
@@ -628,7 +607,7 @@ class ZClient:
         :param filename:
         """
         if not self._exists(filename):
-            raise Exception('append error, file does not exist: ' + filename)
+            raise OSError(2, 'No such file or directory', filename)
         else:
             self.master.delete(filename, '')
 
@@ -680,29 +659,19 @@ class ZClient:
             len_olddata = len(olddata)
             # newchunks = [newdata[x:x + chunksize] for x in range(0, len_newdata, chunksize)]
 
-            if len_newdata == len_olddata:
-                if newdata == olddata:
-                    print()
-                    'no change in contents'
-                else:
-                    print()
-                    'same size but content changed'
-                    x = self.replacechunk(chunkservers, failed_chunkservers, chunkdetails, olddata, newdata, chunksize)
+            if len_newdata == len_olddata and newdata != olddata:
+                self.replacechunk(chunkservers, failed_chunkservers, chunkdetails, olddata, newdata, chunksize)
             elif len_newdata < len_olddata:
-                print()
-                'deleted some contents'
-                x = self.replacechunk(chunkservers, failed_chunkservers, chunkdetails,
-                                      olddata[0:len_newdata], newdata, chunksize)
+                self.replacechunk(chunkservers, failed_chunkservers, chunkdetails,
+                                  olddata[0:len_newdata], newdata, chunksize)
                 # print 'call fn() to delete chunks ' + olddata[
                 # len_newdata + 1:] + ' from chunk server'
-                x = self.deletechunk(filename, chunkdetails, len_newdata, len_olddata, chunksize)
+                self.deletechunk(filename, chunkdetails, len_newdata, len_olddata, chunksize)
             elif len_newdata > len_olddata:
-                print()
-                'added some contents'
-                x = self.replacechunk(chunkservers, failed_chunkservers, chunkdetails, olddata,
-                                      newdata[0:len_olddata], chunksize)
+                self.replacechunk(chunkservers, failed_chunkservers, chunkdetails, olddata,
+                                  newdata[0:len_olddata], chunksize)
                 # print 'call fn() to add chunks '' + newdata[len_olddata + 1:] + '' to chunk server'
-                x2 = self._edit_append(filename, newdata[len_olddata:])
+                self._edit_append(filename, newdata[len_olddata:])
 
             self.master.updatevrsn(filename, 1)
 

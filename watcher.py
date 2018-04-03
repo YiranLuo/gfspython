@@ -65,8 +65,8 @@ class Watcher:
             try:
                 chunkserver_ip = self.convert_zookeeper_ip(self.zookeeper.get(path)[0])
                 chunkserver_num = path[path.rfind('/') + 1:]
-            except Exception as e:
-                print(f'Error registering chunkserver:  {e.message}')
+            except Exception:
+                self.logger.exception('Error registering chunkserver')
                 return False
 
             self.logger.info('Registering chunkserver num %s as %s' % (chunkserver_num, chunkserver_ip))
@@ -154,7 +154,7 @@ class Watcher:
         # y = x.split('@')[0]  name
         # y.split('//')[-1]command
         command = '{}{}'.format(GFS_PATH, command)
-        print(f'in ssh, target={target}, command={command}')
+        self.logger.debug(f'in ssh, target={target}, command={command}')
 
         ssh_opts = {'shell': False, 'stdout': subprocess.PIPE, 'stdin': subprocess.PIPE}
         try:
