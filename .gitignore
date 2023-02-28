@@ -1,3 +1,6 @@
 *.pyc
 zoo*
 *test*
+*.bak
+*.gz
+/apache-zookeeper-3.7.1-bin
