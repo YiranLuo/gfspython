@@ -1,6 +1,7 @@
 import sys
 import subprocess
 import threading
+import traceback
 
 from kazoo.client import KazooClient
 
@@ -18,7 +19,7 @@ def ssh(target, command):
     # y = x.split('@')[0]  name
     # y.split('//')[-1]
     command = '{}{}'.format(GFS_PATH, command)
-    print 'in ssh, target=%s, command=%s' % (target, command)
+    print('in ssh, target=%s, command=%s' % (target, command))
 
     try:
         subprocess.Popen(['ssh', '%s' % target, command],
@@ -29,7 +30,8 @@ def ssh(target, command):
         return True
 
     except Exception as e:
-        print e.message, type(e)
+        print(e.message, type(e))
+        traceback.print_exc()
         return False
 
 class Watcher:
@@ -53,14 +55,15 @@ class Watcher:
             self.zookeeper.start()
             address = "tcp://%s:%s" % (zutils.get_myip(), port)
             self.zookeeper.ensure_path('watcher')
-            self.zookeeper.set('watcher', address)
+            self.zookeeper.set('watcher', address.encode())
 
             # self.master_address = self.zookeeper.get('master')[0].split('@')[-1]
             master_ip = self.zookeeper.get('master')[0]
             self.master_address = self.convert_zookeeper_ip(master_ip)
-            print 'master address', self.master_address, master_ip
+            print('master address', self.master_address, master_ip)
         except:
-            print 'Unable to connect to zookeeper, shutting down'
+            print('Unable to connect to zookeeper, shutting down')
+            traceback.print_exc()
             sys.exit(2)
 
         def watch_it(event):
@@ -70,10 +73,11 @@ class Watcher:
                 chunkserver_ip = self.convert_zookeeper_ip(self.zookeeper.get(path)[0])
                 chunkserver_num = path[path.rfind('/') + 1:]
             except:
-                print 'Error registering chunkserver'
+                print('Error registering chunkserver')
+                traceback.print_exc()
                 return False
 
-            print 'Registering chunkserver num %s as %s' % (chunkserver_num, chunkserver_ip)
+            print('Registering chunkserver num %s as %s' % (chunkserver_num, chunkserver_ip))
             self._register_chunkserver(chunkserver_num, chunkserver_ip)
 
         @self.zookeeper.ChildrenWatch(MASTER_PATH)
@@ -81,17 +85,17 @@ class Watcher:
             children = self.zookeeper.get_children('master')
             if children:
                 self.master_address = self.convert_zookeeper_ip(self.zookeeper.get('master')[0])
-                print '\nMaster down - attempting to recover', self.master_address
+                print('\nMaster down - attempting to recover', self.master_address)
             else:
                 if ssh(self.master_address, MASTER):
-                    print 'Another master successfully started'
+                    print('Another master successfully started')
                 else:
-                    print 'Could not recover master'
+                    print('Could not recover master')
 
         @self.zookeeper.ChildrenWatch(CHUNKSERVER_PATH)
         def watch_chunkservers(children):
             if len(children) > len(self.chunkservers):
-                print "New chunkserver(s) detected"
+                print("New chunkserver(s) detected")
                 # This creates a watch function for each new chunk server, where the
                 # master waits to register until the data(ip address) is updated
                 new_chunkservers = [chunkserver_num for chunkserver_num in children
@@ -101,12 +105,12 @@ class Watcher:
                         # zoo_ip = self.zookeeper.get(CHUNKSERVER_PATH + chunkserver_num,
                         #                             watch=watch_it)[0]
                         zoo_ip = self.zookeeper.get(CHUNKSERVER_PATH + chunkserver_num)[0]
-                        print 'zoo ip ', zoo_ip
+                        print('zoo ip ', zoo_ip)
 
                         # chunkserver_ip = self.convert_zookeeper_ip(
                         #     self.zookeeper.get(CHUNKSERVER_PATH + chunkserver_num)[0])
                         if not zoo_ip:
-                            print 'no ip yet, watching for it'
+                            print('no ip yet, watching for it')
                             self.zookeeper.exists(CHUNKSERVER_PATH + chunkserver_num,
                                                   watch=watch_it)
                         else:
@@ -114,6 +118,7 @@ class Watcher:
                             self._register_chunkserver(chunkserver_num, chunkserver_ip)
                     except Exception as ex:
                         self.print_exception('watch children, adding chunkserver', ex)
+                        traceback.print_exc()
 
             elif len(children) < len(self.chunkservers):
 
@@ -123,14 +128,15 @@ class Watcher:
                     for chunkserver_num in removed_servers:
 
                         if ssh(self.chunkservers[chunkserver_num], SERVER):
-                            print "Another chunkserver to replace %s " % chunkserver_num
+                            print("Another chunkserver to replace %s " % chunkserver_num)
                         else:
-                            print 'Failed to recover from cs num %s failure' % chunkserver_num
+                            print('Failed to recover from cs num %s failure' % chunkserver_num)
 
                         self._unregister_chunkserver(chunkserver_num)
 
                 except Exception as ex:
                     self.print_exception('Removing chunkserver', ex)
+                    traceback.print_exc()
                 finally:
                     pass
 
@@ -146,6 +152,7 @@ class Watcher:
             self.chunkservers[chunkserver_num] = chunkserver_ip
         except Exception as e:
             self.print_exception('register chunkserver', e)
+            traceback.print_exc()
         finally:
             self.lock.release()
 
@@ -155,22 +162,24 @@ class Watcher:
             del self.chunkservers[chunkserver_num]
         except Exception as e:
             self.print_exception('unregister chunkserver', e)
+            traceback.print_exc()
         finally:
             self.lock.release()
 
     @staticmethod
     def print_exception(context, exception, message=''):
-        print "Unexpected error in ", context, message
+        print("Unexpected error in ", context, message)
         if exception:
-            print type(exception).__name__, ': ', exception.args
+            print(type(exception).__name__, ': ', exception.args)
+            traceback.print_exc()
 
     def get(self):
-        print self.chunkservers
-        print self.master_address
+        print(self.chunkservers)
+        print(self.master_address)
 
     @staticmethod
     def convert_zookeeper_ip(data):
-        data = data.replace('tcp://', '')
+        data = str(data).replace('tcp://', '')
         data = data[:data.rfind(':')]
 
         return data

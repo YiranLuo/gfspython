@@ -3,6 +3,7 @@ import uuid
 import os
 import time
 import operator
+from functools import reduce
 
 class GFSClient:
     def __init__(self, master):
@@ -113,18 +114,18 @@ class GFSMaster:
         timestamp = repr(time.time())
         deleted_filename = "/hidden/deleted/" + timestamp + filename 
         self.filetable[deleted_filename] = chunkuuids
-        print "deleted file: " + filename + " renamed to " + \
-             deleted_filename + " ready for gc"
+        print("deleted file: " + filename + " renamed to " + \
+             deleted_filename + " ready for gc")
 
     def dump_metadata(self):
-        print "Filetable:",
-        for filename, chunkuuids in self.filetable.items():
-            print filename, "with", len(chunkuuids),"chunks"
-        print "Chunkservers: ", len(self.chunkservers)
-        print "Chunkserver Data:"
-        for chunkuuid, chunkloc in sorted(self.chunktable.iteritems(), key=operator.itemgetter(1)):
+        print("Filetable:", end=' ')
+        for filename, chunkuuids in list(self.filetable.items()):
+            print(filename, "with", len(chunkuuids),"chunks")
+        print("Chunkservers: ", len(self.chunkservers))
+        print("Chunkserver Data:")
+        for chunkuuid, chunkloc in sorted(iter(self.chunktable.items()), key=operator.itemgetter(1)):
             chunk = self.chunkservers[chunkloc].read(chunkuuid)
-            print chunkloc, chunkuuid, chunk 
+            print(chunkloc, chunkuuid, chunk) 
 
 class GFSChunkserver:
     def __init__(self, chunkloc):
@@ -160,40 +161,40 @@ def main():
     client = GFSClient(master)
 
     # test write, exist, read
-    print "\nWriting..."
+    print("\nWriting...")
     client.write("/usr/python/readme.txt", """
         This file tells you all about python that you ever wanted to know.
         Not every README is as informative as this one, but we aim to please.
         Never yet has there been so much information in so little space.
         """)
-    print "File exists? ", client.exists("/usr/python/readme.txt")
-    print client.read("/usr/python/readme.txt")
+    print("File exists? ", client.exists("/usr/python/readme.txt"))
+    print(client.read("/usr/python/readme.txt"))
 
     # test append, read after append
-    print "\nAppending..."
+    print("\nAppending...")
     client.write_append("/usr/python/readme.txt", \
         "I'm a little sentence that just snuck in at the end.\n")
-    print client.read("/usr/python/readme.txt")
+    print(client.read("/usr/python/readme.txt"))
 
     # test delete
-    print "\nDeleting..."
+    print("\nDeleting...")
     client.delete("/usr/python/readme.txt")
-    print "File exists? ", client.exists("/usr/python/readme.txt")
+    print("File exists? ", client.exists("/usr/python/readme.txt"))
     
     # test exceptions
-    print "\nTesting Exceptions..."
+    print("\nTesting Exceptions...")
     try:
         client.read("/usr/python/readme.txt")
     except Exception as e:
-        print "This exception should be thrown:", e
+        print("This exception should be thrown:", e)
     try:
         client.write_append("/usr/python/readme.txt", "foo")
     except Exception as e:
-        print "This exception should be thrown:", e
+        print("This exception should be thrown:", e)
 
     # show structure of the filesystem
-    print "\nMetadata Dump..." 
-    print master.dump_metadata()
+    print("\nMetadata Dump...") 
+    print(master.dump_metadata())
 
 if __name__ == "__main__":
     main()

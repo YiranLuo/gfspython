@@ -23,17 +23,17 @@ def main(argv):
     address = 'tcp://%s:%s' % (zutils.get_myip(), PORT)
 
     try:
-        print 'Registering watcher at %s' % address
+        print('Registering watcher at %s' % address)
         s.bind(address)
         s.run()
     except ZMQError as e:
-        print "Unable to start watcher: " + e.strerror
+        print("Unable to start watcher: " + e.strerror)
         s.close()
         sys.exit(2)
     except KeyboardInterrupt:
         pass
     finally:
-        print 'Closing watcher on %s' % address
+        print('Closing watcher on %s' % address)
         s.close()
 
 

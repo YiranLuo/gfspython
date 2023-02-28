@@ -15,7 +15,7 @@ def get_tcp(port=None):
         return 'tcp://%s' % get_myip()
 
 
-def get_zk(ip='localhost:2181'):
+def get_zk(ip='127.0.0.1:2181'):
     from kazoo.client import KazooClient
     from kazoo.handlers.threading import KazooTimeoutError
 
@@ -23,7 +23,7 @@ def get_zk(ip='localhost:2181'):
     try:
         zk.start(timeout=10)
     except KazooTimeoutError:
-        print "Couldn't connect to zookeeper"
+        print("Couldn't connect to zookeeper")
         zk.stop()
 
     return zk

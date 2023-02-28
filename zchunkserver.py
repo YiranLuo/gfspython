@@ -4,6 +4,7 @@ import re
 import subprocess
 import xxhash
 import getpass
+import traceback
 
 import zerorpc
 from kazoo.client import KazooClient, KazooState
@@ -23,14 +24,16 @@ class ZChunkserver:
         # TODO:  need to add handling in case master is down here
         try:
             self.master_ip = self._register_with_zookeeper()
-            print 'Chunkserver %d Connecting to master at %s' % (int(self.chunkloc), self.master_ip)
+            print('Chunkserver %d Connecting to master at %s' % (int(self.chunkloc), self.master_ip))
             self.master.connect(self.master_ip)
         except NoNodeError:
-            print "No master record in zookeeper"
+            print("No master record in zookeeper")
             raise  # TODO handle shadow master/waiting for master to reconnect later
         except Exception as e:
-            print "Unexpected error connecting to master:"
-            print e.__doc__, e.message
+            print("Unexpected error connecting to master:")
+            # print(e.__doc__, e.message)
+            traceback.print_exc()
+
 
         # local directory where chunks are stored
         self.local_filesystem_root = "/tmp/gfs/chunks/" #+ repr(int(self.chunkloc))
@@ -41,14 +44,14 @@ class ZChunkserver:
 
         def my_listener(state):
             if state == KazooState.LOST or state == KazooState.SUSPENDED:
-                print "suspended|lost state"
+                print("suspended|lost state")
                 # TODO connect to zookeeper again
 
         try:
             self.zookeeper.start()
             self.zookeeper.add_listener(my_listener)
             self.zookeeper.ensure_path('chunkserver')
-            master_ip = self.zookeeper.get('master')[0].split('@')[-1]
+            master_ip = self.zookeeper.get('master')[0].decode().split('@')[-1]
 
             path = self.zookeeper.create('chunkserver/', ephemeral=True, sequence=True)
             self.chunkloc = path.replace('/chunkserver/', '')
@@ -57,10 +60,11 @@ class ZChunkserver:
                                                tcpip=zutils.get_tcp(4400 + int(self.chunkloc)))
 
             # self.zookeeper.set(path, zutils.get_tcp(4400 + int(self.chunkloc)))
-            self.zookeeper.set(path, data)
+            self.zookeeper.set(path, data.encode())
 
         except Exception as e:
-            print "Exception while registering with zookeeper: %s, %s" % (type(e).__name__, e.args)
+            # print("Exception while registering with zookeeper: %s, %s" % (type(e).__name__, e.args))
+            traceback.print_exc()
 
         return master_ip
 
@@ -68,7 +72,7 @@ class ZChunkserver:
         """
         Prints name to test connectivity
         """
-        print 'I am chunkserver #' + str(int(self.chunkloc))
+        print('I am chunkserver #' + str(int(self.chunkloc)))
         self.master.answer_server(int(self.chunkloc))
 
     def write(self, chunkuuid, chunk, forward=None):
@@ -82,7 +86,7 @@ class ZChunkserver:
 
         #print "forward is ", forward
         if forward:
-            print "Forwarding chunk to loc", forward
+            print("Forwarding chunk to loc", forward)
             self.send_chunk(chunkuuid, str([forward]), chunk)
         return xxhash.xxh64(chunk).digest()
 
@@ -133,7 +137,7 @@ class ZChunkserver:
     def _establish_connection(self, chunkloc):
         chunkservers = self.master.get('chunkservers')
         zclient = zerorpc.Client()
-        print 'Server connecting to chunkserver at %s' % chunkloc
+        print('Server connecting to chunkserver at %s' % chunkloc)
         zclient.connect(chunkservers[chunkloc])
         #zclient.print_name()
         return zclient
@@ -143,14 +147,14 @@ class ZChunkserver:
             filename = self.chunk_filename(chunkid)
             try:
                 if os.path.exists(filename):
-                    print "Removing " + filename
+                    print("Removing " + filename)
                     os.remove(filename)
                     return True
             except:
                 None
 
     def disp(self, a):
-        print str(a) + str(self.chunkloc)
+        print(str(a) + str(self.chunkloc))
 
     def chunk_filename(self, chunkuuid):
         local_filename = self.local_filesystem_root + "/" + str(chunkuuid) + '.gfs'
@@ -169,7 +173,7 @@ class ZChunkserver:
                     break
             except Exception as e:
                 flag = False
-                print "some error happend in copy_chunk", type(e).__name__, e.args
+                print("some error happend in copy_chunk", type(e).__name__, e.args)
 
         return flag
 
@@ -194,7 +198,7 @@ class ZChunkserver:
             new_local_filename = local_filename.split('/')
             new_local_filename[-1] = new_local_filename[-1].replace(filename, newfilename)
             new_local_filename = '/'.join(new_local_filename)
-            print "Changing %s to %s" % (local_filename, new_local_filename)
+            print("Changing %s to %s" % (local_filename, new_local_filename))
             try:
                 os.rename(local_filename, new_local_filename)
             except:
@@ -228,5 +232,5 @@ class ZChunkserver:
             # self.master.populate(files, str(self.chunkloc))
             return files, self.chunkloc
         else:
-            print "nothing to populate"
+            print("nothing to populate")
             return None, None

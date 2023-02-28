@@ -21,14 +21,14 @@ def main(argv):
     # connect to master
     s.bind('tcp://*:%d' % PORT)
 
-    print 'Registering master on port %s' % PORT
+    print(('Registering master on port {}'.format(PORT)))
 
     try:
         s.run()
     except:
-        print 'Unable to start master'
+        print('Unable to start master')
     finally:
-        print 'Closing master on port %s' % PORT
+        print(('Closing master on port %s'.format(PORT)))
         s.close()
         # scheduler.shutdown()
         

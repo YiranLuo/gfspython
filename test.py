@@ -13,17 +13,17 @@ deletewhen=[6]
 choice=0
 
 while(flag!='0'):
-  a=client.master.get('filetable').keys()
+  a=list(client.master.get('filetable').keys())
   a.remove('#garbage_collection#')
 
-  print "a =",a
+  print("a =",a)
 
   #read file
   if a!=[] and choice in readwhen:
    filename=random.choice(a)
-   print "read ",filename
+   print("read ",filename)
    client.read(filename)
-   print "---"
+   print("---")
 
   #write file
   if choice in writewhen:
@@ -32,21 +32,21 @@ while(flag!='0'):
       data=f.read()
     
     if random.getrandbits(1) and a!=[]:
-      print "edit ",writefname,filename
+      print("edit ",writefname,filename)
       writefname=random.choice(a) #edit
     else:
-      print "write ",writefname,filename
       writefname=str(random.random()).split('.')[1]+".txt" #write
+      print("write ",writefname,filename)
 
     client.write(writefname, data)
-    print "---"
+    print("---")
 
   #delete file
   if a!=[] and choice in deletewhen:
     filename=random.choice(a)
-    print "delete ",filename
+    print("delete ",filename)
     client.delete(filename)
-    print "---"
+    print("---")
   
   choice=random.randint(0,9)
 
